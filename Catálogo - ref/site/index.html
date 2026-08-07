@@ -1,0 +1,21 @@
+<!doctype html><html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Catálogo de Produtos — Lojas Belmont</title>
+<link rel="stylesheet" href="style.css">
+</head><body>
+<header class="top">
+  <div class="brand"><img src="logo.png" alt="Belmont">
+    <div><h1>LOJAS BELMONT</h1><span>Catálogo de Produtos • João Pessoa – PB</span></div></div>
+  <div class="search"><input id="q" type="search" placeholder="Buscar produto ou código..."></div>
+</header>
+<nav id="cats" class="cats"></nav>
+<main><div id="count" class="count"></div><section id="grid" class="grid"></section>
+  <div id="empty" class="empty" hidden>Nenhum produto encontrado.</div></main>
+<footer class="foot">Lojas Belmont • +38 anos de história • João Pessoa – PB<br>
+  <small>Preços sujeitos a alteração sem aviso prévio.</small></footer>
+<div id="modal" class="modal" hidden><div class="box">
+  <button id="x" class="x">×</button><img id="mimg" src="" alt="">
+  <div class="minfo"><h2 id="mname"></h2><div id="mcod" class="mcod"></div>
+    <p id="mdesc"></p><div id="mprice" class="mprice"></div></div></div></div>
+<script src="data.js"></script><script src="app.js"></script>
+</body></html>
