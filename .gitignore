@@ -1,0 +1,13 @@
+# secrets & sessions — NEVER commit
+.env
+storageState.json
+data/
+
+# node
+node_modules/
+npm-debug.log*
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/

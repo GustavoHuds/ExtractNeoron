@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neoron · Timeline & Métricas</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="mark">N</span>
+      <div>
+        <h1>Métricas &amp; Desempenho</h1>
+        <p class="sub" id="meta">Carregando…</p>
+      </div>
+    </div>
+    <nav class="tabs">
+      <a class="tab" href="/">Leads</a>
+      <a class="tab active" href="/timeline.html">Métricas</a>
+    </nav>
+    <div class="actions">
+      <button id="btn-refresh" class="primary">Recalcular</button>
+    </div>
+  </header>
+
+  <div class="tl-wrap">
+    <div class="kpis" id="kpis"></div>
+    <div class="tl-grid" id="grid"></div>
+  </div>
+
+  <div id="overlay" hidden><div class="spinner"></div><p>Calculando métricas (lendo conversas)…</p></div>
+  <script src="timeline.js"></script>
+</body>
+</html>
