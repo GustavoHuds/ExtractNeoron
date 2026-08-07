@@ -198,9 +198,9 @@ function formatPhone(p) {
 }
 
 /** Core: return normalized rows for all "negociando" chats across the user's bots. */
-export async function extractNegociando() {
+export async function extractNegociando(auth) {
   ensureDirs();
-  const { idToken, localId, email } = await signIn();
+  const { idToken, localId, email } = auth || await signIn(); // CLI falls back to .env
   const bots = await listBots(idToken, localId);
   const now = Date.now();
   const rows = [];
