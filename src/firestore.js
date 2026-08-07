@@ -6,8 +6,8 @@
  */
 import { config } from './config.js';
 
-const PROJECT = 'neoron';
-const API_KEY = 'AIzaSyDS65vzbj3_zGMFHypPaRG76DFEfAxuB50';
+export const PROJECT = 'neoron';
+export const API_KEY = 'AIzaSyDS65vzbj3_zGMFHypPaRG76DFEfAxuB50';
 const DB = `projects/${PROJECT}/databases/(default)`;
 const DOCS = `https://firestore.googleapis.com/v1/${DB}/documents`;
 
@@ -97,4 +97,4 @@ export function decodeDoc(doc) {
   return { _path: name.split('/documents/')[1] || name, _id: id, ...decodeFields(doc.fields || {}) };
 }
 
-export { PROJECT, DB, DOCS };
+export { DB, DOCS };
