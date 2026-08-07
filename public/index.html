@@ -7,13 +7,21 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
+  <div id="login" class="login-scrim" hidden>
+    <form class="login-card" id="login-form">
+      <div class="login-brand"><span class="logo">EN</span><b>ExtractNeoron</b></div>
+      <p class="login-sub">Entre com sua conta do Neoron</p>
+      <label>E-mail<input type="email" id="login-email" autocomplete="username" required></label>
+      <label>Senha<input type="password" id="login-pass" autocomplete="current-password" required></label>
+      <button class="primary" type="submit" id="login-btn">Entrar</button>
+      <p class="login-err" id="login-err" hidden></p>
+    </form>
+  </div>
+
+  <header class="topbar">
     <div class="brand">
-      <span class="mark">N</span>
-      <div>
-        <h1>Leads em Negociação</h1>
-        <p class="sub" id="meta">Clique em Extrair para carregar do Neoron.</p>
-      </div>
+      <span class="logo">EN</span>
+      <div><h1>ExtractNeoron</h1><p class="sub">Leads em Negociação</p></div>
     </div>
     <nav class="tabs">
       <a class="tab active" href="/">Leads</a>
@@ -25,9 +33,13 @@
       <div class="menu">
         <button id="btn-export">Exportar</button>
         <div class="menu-list" id="export-menu" hidden>
-          <a href="/api/download.xlsx">Excel (.xlsx)</a>
-          <a href="/api/download">CSV</a>
+          <a href="#" data-dl="xlsx">Excel (.xlsx)</a>
+          <a href="#" data-dl="csv">CSV</a>
         </div>
+      </div>
+      <div class="usermenu">
+        <button id="user-chip" class="user-chip"><span class="avatar" id="user-initial">·</span><span id="user-name">—</span></button>
+        <div class="menu-list" id="user-menu" hidden><a href="#" id="btn-logout">Sair</a></div>
       </div>
     </div>
   </header>
@@ -77,6 +89,6 @@
   </main>
 
   <div id="overlay" hidden><div class="spinner"></div><p id="overlay-msg">Extraindo do Neoron…</p></div>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
