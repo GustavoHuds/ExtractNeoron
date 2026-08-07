@@ -27,25 +27,24 @@ sem scraping de tela, robusto e rápido.
 ```bash
 npm install
 npx playwright install chromium   # só é necessário para o discover.js (mapeamento)
-cp .env.example .env               # e preencha as credenciais
 ```
 
-`.env` (git-ignored — nunca commitado):
+O `.env` é **opcional** e só necessário se for usar o `discover.js` (mapeamento da estrutura do Neoron).
+O login do dashboard é feito **no navegador** — não é preciso criar `.env` para usar o painel.
 
-```
-NEORON_EMAIL=...            # login admin do Neoron
-NEORON_PASSWORD=...
-IDLE_THRESHOLD_HOURS=24     # acima disso o chat é marcado "esquecido"
-NEGOCIANDO_TAG_NAME=negociando
-PORT=3000
+Se for usar o `discover.js`:
+```bash
+cp .env.example .env   # preencha NEORON_EMAIL e NEORON_PASSWORD
 ```
 
 ## Uso
 
 ```bash
-npm run extract   # gera data/negociando.csv e data/negociando.json
+# Inicie o painel (duplo-clique no Iniciar-ExtractNeoron.bat, ou:)
 npm run serve     # abre o dashboard em http://localhost:3000
 ```
+
+No navegador, entre com **sua conta do Neoron** (e-mail/senha). O navegador memoriza você (login automático nas próximas vezes). O `.env` **não** é mais usado para login — apenas o `discover.js` o usa.
 
 ### Página **Leads** (`/`)
 - Botão **Extrair** re-executa a extração; **auto-atualização a cada 15 min**.
