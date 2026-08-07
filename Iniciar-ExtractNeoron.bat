@@ -31,20 +31,7 @@ if not exist "node_modules" (
   )
 )
 
-REM --- 3) Arquivo .env com as credenciais -------------------
-if not exist ".env" (
-  if exist ".env.example" (
-    echo .env nao encontrado. Criando a partir de .env.example...
-    copy /y ".env.example" ".env" >nul
-  )
-  echo.
-  echo [ATENCAO] Preencha as credenciais do Neoron no arquivo .env
-  echo antes de usar o botao "Extrair". Abrindo o .env para edicao...
-  start "" notepad ".env"
-  echo.
-)
-
-REM --- 4) Abrir o navegador ~3s apos o servidor subir -------
+REM --- 3) Abrir o navegador ~3s apos o servidor subir -------
 echo.
 echo Iniciando o painel em http://localhost:3000 ...
 echo (Para encerrar, feche esta janela.)
