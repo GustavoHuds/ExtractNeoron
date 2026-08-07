@@ -19,6 +19,7 @@ import { detectProducts } from './products.js';
 import { matchProduct } from './catalog.js';
 import { attendantName, responseMetrics, leadScore } from './metrics.js';
 import { loadDone, appendSnapshot } from './store.js';
+import { neutralizeCell } from './sanitize.js';
 
 const TAG_NAME = (process.env.NEGOCIANDO_TAG_NAME || 'negociando').toLowerCase();
 
@@ -377,7 +378,7 @@ function toCsv(rows) {
   const esc = (v) => {
     if (Array.isArray(v)) v = v.join(' | ');
     if (v == null) v = '';
-    const s = String(v);
+    const s = neutralizeCell(String(v));
     return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const header = CSV_COLS.map(([, label]) => esc(label)).join(',');
