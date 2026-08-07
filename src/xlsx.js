@@ -1,5 +1,6 @@
 /** Styled .xlsx export of the Negociando call list (two sheets: Leads + Resumo). */
 import ExcelJS from 'exceljs';
+import { neutralizeCell } from './sanitize.js';
 
 const TEMP_FILL = {
   quente: 'FFFAD4D4',
@@ -47,11 +48,16 @@ export async function buildWorkbook(result) {
   for (const r of result.rows) {
     const row = ws.addRow({
       ...r,
+      nome: neutralizeCell(r.nome),
+      contato: neutralizeCell(r.contato),
+      produto: neutralizeCell(r.produto),
+      atendente: neutralizeCell(r.atendente),
+      contexto: neutralizeCell(r.contexto),
       temperatura: cap(r.temperatura),
-      motivos: (r.motivos || []).join(', '),
+      motivos: neutralizeCell((r.motivos || []).join(', ')),
       aguardando: r.aguardando ? 'Sim' : '',
       feito: r.feito ? 'Sim' : '',
-      tags: (r.tags || []).join(', '),
+      tags: neutralizeCell((r.tags || []).join(', ')),
       produtoPreco: r.produtoPreco || null,
       ultimaInteracao: r.ultimaInteracao ? new Date(r.ultimaInteracao) : null,
     });
