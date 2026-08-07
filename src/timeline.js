@@ -34,15 +34,18 @@ const monthKey = (ms) => new Date(ms).toISOString().slice(0, 7); // YYYY-MM
 
 /** Pure per-attendant aggregation from per-conversation stat rows. */
 export function aggregateAttendants(stats, currentMonth) {
+  const total = stats.length;
   const map = new Map();
   for (const s of stats) {
     const name = s.atendente || '—';
-    if (!map.has(name)) map.set(name, { nome: name, conversas: 0, chatsMes: 0, firsts: [], vendas: 0, aguardando: 0 });
+    if (!map.has(name)) map.set(name, { nome: name, conversas: 0, chatsMes: 0, firsts: [], vendas: 0, descartados: 0, abertos: 0, aguardando: 0 });
     const a = map.get(name);
     a.conversas++;
     if (s.mes === currentMonth) a.chatsMes++;
     if (s.first != null) a.firsts.push(s.first);
     if (s.situacao === 'Vendido') a.vendas++;
+    else if (s.situacao === 'Descartado') a.descartados++;
+    else if (s.situacao === 'Aberto') a.abertos++;
     if (s.awaiting) a.aguardando++;
   }
   const round1 = (n) => Math.round(n * 10) / 10;
@@ -51,10 +54,14 @@ export function aggregateAttendants(stats, currentMonth) {
     conversas: a.conversas,
     chatsMes: a.chatsMes,
     vendas: a.vendas,
+    descartados: a.descartados,
+    abertos: a.abertos,
     aguardando: a.aguardando,
+    pctVolume: total ? round1((a.conversas / total) * 100) : 0,
     primeiraRespostaMedianaMin: min(median(a.firsts)),
     primeiraRespostaMediaMin: a.firsts.length
       ? Math.round(a.firsts.reduce((x, y) => x + y, 0) / a.firsts.length / 60000) : null,
+    // Conversão do atendente = vendidos / total de contatos que ele atendeu.
     taxaConversao: a.conversas ? round1((a.vendas / a.conversas) * 100) : 0,
   })).sort((a, b) => b.conversas - a.conversas);
 }
@@ -175,7 +182,10 @@ export async function buildTimeline(auth) {
     statusDist.set(st, (statusDist.get(st) || 0) + 1);
   }
   const negociando = sit.Aberto + sit.Vendido + sit.Descartado;
-  const conversao = { entraram: negociando, vendidos: sit.Vendido, taxa: negociando ? Math.round(sit.Vendido / negociando * 1000) / 10 : 0 };
+  // Conversão = vendidos (tag "venda realizada") / TODOS que entraram em contato,
+  // não apenas os que estão em negociação.
+  const contatos = convs.length;
+  const conversao = { entraram: contatos, negociando, vendidos: sit.Vendido, taxa: contatos ? Math.round(sit.Vendido / contatos * 1000) / 10 : 0 };
 
   const result = {
     generatedAt: new Date(now).toISOString(),

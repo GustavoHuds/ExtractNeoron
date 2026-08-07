@@ -186,3 +186,13 @@ tbody td { vertical-align: top; padding-top: 12px; padding-bottom: 12px; }
 .metrics-tbl .ag-name { font-weight: 600; color: var(--text); }
 .metrics-tbl .slow { color: var(--hot); font-weight: 600; }
 @media (max-width: 900px) { .tl-grid { grid-template-columns: 1fr; } }
+
+/* ---- metrics sections + multi-series legend ---- */
+#grid > .tl-grid { margin-bottom: 6px; }
+.section-title { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); margin: 24px 2px 10px; padding-top: 14px; border-top: 1px solid var(--border); }
+.section-title:first-child { border-top: 0; padding-top: 0; margin-top: 2px; }
+.chart-legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 2px 0 8px; font-size: 12px; color: var(--text-2); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+/* Let chart SVG text be sized by the chart (inline style), not the tiny global rule */
+.card svg text { font-size: inherit; }
