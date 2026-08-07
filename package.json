@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "test": "node --test",
     "discover": "node src/discover.js",
     "extract": "node src/extractor.js",
     "serve": "node src/server.js"
