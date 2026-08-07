@@ -30,6 +30,34 @@ function median(arr) {
   const s = [...arr].sort((a, b) => a - b);
   return s[Math.floor((s.length - 1) / 2)];
 }
+const monthKey = (ms) => new Date(ms).toISOString().slice(0, 7); // YYYY-MM
+
+/** Pure per-attendant aggregation from per-conversation stat rows. */
+export function aggregateAttendants(stats, currentMonth) {
+  const map = new Map();
+  for (const s of stats) {
+    const name = s.atendente || '—';
+    if (!map.has(name)) map.set(name, { nome: name, conversas: 0, chatsMes: 0, firsts: [], vendas: 0, aguardando: 0 });
+    const a = map.get(name);
+    a.conversas++;
+    if (s.mes === currentMonth) a.chatsMes++;
+    if (s.first != null) a.firsts.push(s.first);
+    if (s.situacao === 'Vendido') a.vendas++;
+    if (s.awaiting) a.aguardando++;
+  }
+  const round1 = (n) => Math.round(n * 10) / 10;
+  return [...map.values()].map((a) => ({
+    nome: a.nome,
+    conversas: a.conversas,
+    chatsMes: a.chatsMes,
+    vendas: a.vendas,
+    aguardando: a.aguardando,
+    primeiraRespostaMedianaMin: min(median(a.firsts)),
+    primeiraRespostaMediaMin: a.firsts.length
+      ? Math.round(a.firsts.reduce((x, y) => x + y, 0) / a.firsts.length / 60000) : null,
+    taxaConversao: a.conversas ? round1((a.vendas / a.conversas) * 100) : 0,
+  })).sort((a, b) => b.conversas - a.conversas);
+}
 function tagsOf(conv) {
   const a = Object.values(conv.contact?.tags || {});
   const b = Object.values(conv.tags || {});
@@ -66,9 +94,9 @@ async function mapLimit(items, limit, fn) {
   return res;
 }
 
-export async function buildTimeline() {
+export async function buildTimeline(auth) {
   ensureDirs();
-  const { idToken, localId, email } = await signIn();
+  const { idToken, localId, email } = auth || await signIn();
   const bots = await listBots(idToken, localId);
   const now = Date.now();
   const cutoff = now - RESP_WINDOW_DAYS * 864e5;
@@ -100,6 +128,7 @@ export async function buildTimeline() {
       const rm = responseMetrics(msgs, now);
       return {
         dia: dayKey(toMs(c.created_date) ?? toMs(c.last_message_at) ?? now),
+        mes: monthKey(toMs(c.created_date) ?? toMs(c.last_message_at) ?? now),
         atendente: attendantName(msgs),
         first: rm.firstResponseMs,
         median: rm.medianResponseMs,
@@ -133,21 +162,8 @@ export async function buildTimeline() {
   const respostaPorDia = [...dayResp.entries()].sort((a, b) => a[0].localeCompare(b[0]))
     .map(([dia, arr]) => ({ dia, medianaMin: min(median(arr)), amostras: arr.length })).slice(-30);
 
-  // Per-attendant
-  const agMap = new Map();
-  for (const s of stats) {
-    const name = s.atendente || '—';
-    if (!agMap.has(name)) agMap.set(name, { nome: name, conversas: 0, firsts: [], vendas: 0, aguardando: 0 });
-    const a = agMap.get(name);
-    a.conversas++;
-    if (s.first != null) a.firsts.push(s.first);
-    if (s.situacao === 'Vendido') a.vendas++;
-    if (s.awaiting) a.aguardando++;
-  }
-  const atendentes = [...agMap.values()].map((a) => ({
-    nome: a.nome, conversas: a.conversas, vendas: a.vendas, aguardando: a.aguardando,
-    medianaRespostaMin: min(median(a.firsts)),
-  })).sort((a, b) => b.conversas - a.conversas);
+  const nowMonth = monthKey(now);
+  const atendentes = aggregateAttendants(stats, nowMonth);
 
   // Funnel / situação across all conversations
   const sit = { Aberto: 0, Vendido: 0, Descartado: 0 };
@@ -174,6 +190,7 @@ export async function buildTimeline() {
       distribuicao: buckets.map((b) => ({ faixa: b.faixa, n: b.n })),
     },
     atendentes,
+    volumePorAtendente: atendentes.map((a) => ({ nome: a.nome, conversas: a.conversas })),
     situacao: sit,
     conversao,
     statusDist: [...statusDist.entries()].map(([status, n]) => ({ status, n })).sort((a, b) => b.n - a.n),
