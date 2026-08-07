@@ -214,10 +214,19 @@ function paintUser() {
 }
 function showLogin(show) { $('#login').hidden = !show; }
 
+// After a successful login (fresh or auto): show the last snapshot instantly,
+// then automatically analyse fresh data from Neoron.
+async function afterAuth() {
+  showLogin(false);
+  paintUser();
+  await loadCached();   // instant: last saved snapshot, if any
+  extract(false);       // auto-analyse (fetches + filters "negociando" from Neoron)
+}
+
 async function boot() {
   try {
     await refresh();          // auto-login with stored refresh token
-    showLogin(false); paintUser(); loadCached();
+    await afterAuth();
   } catch {
     showLogin(true);
   }
@@ -229,7 +238,7 @@ $('#login-form').addEventListener('submit', async (e) => {
   btn.disabled = true; err.hidden = true;
   try {
     await login($('#login-email').value.trim(), $('#login-pass').value);
-    showLogin(false); paintUser(); loadCached();
+    await afterAuth();
   } catch (ex) { err.textContent = ex.message; err.hidden = false; }
   finally { btn.disabled = false; }
 });
