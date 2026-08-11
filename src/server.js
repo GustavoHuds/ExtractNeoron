@@ -7,10 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, OUT_JSON } from './config.js';
-import { extractNegociando, toCsv, summarizeRows } from './extractor.js';
+import { extractNegociando, toCsv, summarizeRows, fetchMessages, normalizeTranscript } from './extractor.js';
 import { buildWorkbook } from './xlsx.js';
 import { buildTimeline, loadCachedTimeline } from './timeline.js';
-import { setDone } from './store.js';
+import { setDone, bumpNoAnswer, resetNoAnswer } from './store.js';
 import { requireAuth } from './auth.js';
 import { saveCatalog, catalogStatus, parseCatalogCsv } from './catalog.js';
 
@@ -90,6 +90,27 @@ app.post('/api/done', (req, res) => {
   if (!id) return res.status(400).json({ error: 'id obrigatório' });
   const map = setDone(id, !!done, req.body.by || '');
   res.json({ ok: true, feito: !!map[id], at: map[id]?.at || null });
+});
+
+// Register (or reset) a "Não atendeu" call attempt for a lead.
+app.post('/api/noanswer', (req, res) => {
+  const { id, reset } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id obrigatório' });
+  const map = reset ? resetNoAnswer(id) : bumpNoAnswer(id, req.body.by || '');
+  const entry = map[id] || { count: 0, at: null };
+  res.json({ ok: true, count: entry.count || 0, at: entry.at || null });
+});
+
+// Full chat transcript for one conversation, fetched on demand (never cached).
+app.get('/api/messages/:botId/:convId', async (req, res) => {
+  try {
+    const messages = normalizeTranscript(
+      await fetchMessages(req.auth.idToken, req.params.botId, req.params.convId));
+    res.json({ messages });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Falha ao carregar a conversa.' });
+  }
 });
 
 // Catalog: report status / import a catalog JSON (each deployment brings its own).

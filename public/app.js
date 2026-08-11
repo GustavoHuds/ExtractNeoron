@@ -24,12 +24,25 @@ function ago(ms) {
 }
 const TEMP_LABEL = { quente: 'Quente', morno: 'Morno', frio: 'Frio' };
 
+// Effective wait for the default queue order. A lead that went unanswered ONCE
+// re-sinks (clock restarts at naoAtendeuAt) and climbs back up over time.
+function effWaitMin(r) {
+  if (r.naoAtendeuCount === 1 && r.naoAtendeuAt) return (Date.now() - Date.parse(r.naoAtendeuAt)) / 60000;
+  return r.aguardandoMin || 0;
+}
+
 function visibleRows() {
   const q = $('#search').value.trim().toLowerCase();
   const hideDone = $('#hide-done').checked;
   let rows = DATA.rows.slice();
-  if (filterSituacao !== 'all') rows = rows.filter((r) => r.situacao === filterSituacao);
-  if (onlyCall24h) rows = rows.filter((r) => r.paraLigar);
+  const bucket = filterSituacao === 'naoAtendeu';
+  if (bucket) {
+    rows = rows.filter((r) => r.noAnswerBucket);            // the "Não atendeu" filter
+  } else {
+    rows = rows.filter((r) => !r.noAnswerBucket);           // bucket leads live only in their filter
+    if (filterSituacao !== 'all') rows = rows.filter((r) => r.situacao === filterSituacao);
+    if (onlyCall24h) rows = rows.filter((r) => r.paraLigar);
+  }
   rows = rows.filter((r) => tempOn[r.temperatura]);
   if (hideDone) rows = rows.filter((r) => !r.feito);
   if (q) rows = rows.filter((r) =>
@@ -42,6 +55,8 @@ function visibleRows() {
       if (x == null) x = -Infinity; if (y == null) y = -Infinity;
       return x < y ? -sortDir : x > y ? sortDir : 0;
     });
+  } else {
+    rows.sort((a, b) => effWaitMin(b) - effWaitMin(a));      // default: longest effective wait on top
   }
   return rows;
 }
@@ -68,29 +83,55 @@ function render() {
     const tags = (r.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join('');
     const motivos = (r.motivos || []);
     const motivoLine = motivos.length ? `<div class="motivo t-${r.temperatura}" title="Sinais detectados na conversa">${esc(motivos.slice(0, 3).join(' · '))}</div>` : '';
+    const waText = r.noAnswerBucket ? '?text=' + encodeURIComponent(noAnswerMsg(r.nome)) : '';
+    const naTag = r.naoAtendeuCount ? `<span class="badge-na" title="Ligações sem resposta">Não atendeu · ${r.naoAtendeuCount}</span>` : '';
     return `<tr class="temp-${r.temperatura}${r.feito ? ' done' : ''}">
       <td class="nome">
         <div class="nm-line">${temp}<span class="nm">${esc(r.nome)}</span></div>
-        <div class="badges">${sit}${wait}</div>
+        <div class="badges">${sit}${wait}${naTag}</div>
         ${motivoLine}
         ${tags ? `<div class="tags">${tags}</div>` : ''}
       </td>
-      <td class="phone-cell">
+      <td class="phone-cell" data-label="Telefone">
         <span class="phone">${esc(r.contato)}</span>
         <span class="phone-actions">
           <button class="icon-btn copy" data-copy="+${esc(r.telefone)}" title="Copiar número">${COPY_ICON}</button>
-          <a class="icon-btn" href="https://wa.me/${esc(r.telefone)}" target="_blank" rel="noopener" title="Abrir no WhatsApp">${WA_ICON}</a>
+          <a class="icon-btn" href="https://wa.me/${esc(r.telefone)}${waText}" target="_blank" rel="noopener" title="Abrir no WhatsApp">${WA_ICON}</a>
         </span>
       </td>
-      <td>${prod}</td>
-      <td>${esc(r.atendente)}</td>
-      <td class="when"><div>${fmtWhen(r.ultimaInteracao)}</div><div class="sub-info">${ago(r.ultimaInteracaoMs)}</div></td>
-      <td class="ctx">${esc(r.contexto)}</td>
-      <td class="act">
-        <button class="done-btn ${r.feito ? 'is-done' : ''}" data-id="${esc(r.conversationId)}">${r.feito ? 'Concluído' : 'Marcar concluído'}</button>
-      </td>
+      <td data-label="Produto">${prod}</td>
+      <td data-label="Atendente">${esc(r.atendente)}</td>
+      <td class="when" data-label="Última mensagem"><div>${fmtWhen(r.ultimaInteracao)}</div><div class="sub-info">${ago(r.ultimaInteracaoMs)}</div></td>
+      <td class="ctx" data-label="Contexto">${esc(r.contexto)}</td>
+      <td class="act" data-label="Ação">${actionsHtml(r)}</td>
     </tr>`;
   }).join('');
+}
+
+const EYE_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+// Ready WhatsApp message for leads that never answered the phone. {first name} filled in.
+function firstName(n) {
+  const f = String(n || '').trim().split(/\s+/)[0];
+  return (f && !/^[+\d]/.test(f)) ? f : '';
+}
+function noAnswerMsg(nome) {
+  const fn = firstName(nome);
+  return `${fn ? 'Olá ' + fn : 'Olá'}, tudo bem? Aqui é da Belmont. Tentei falar com você por telefone sobre o seu atendimento e não consegui. Fico à disposição por aqui quando puder!`;
+}
+
+// Per-lead action buttons. Bucket leads (2+ unanswered calls) get the WhatsApp workflow.
+function actionsHtml(r) {
+  const id = esc(r.conversationId);
+  const eye = `<button class="icon-btn eye-btn" data-id="${id}" data-bot="${esc(r.botId)}" title="Ver conversa">${EYE_ICON}</button>`;
+  const done = `<button class="done-btn ${r.feito ? 'is-done' : ''}" data-id="${id}">${r.feito ? 'Concluído' : 'Concluir'}</button>`;
+  if (r.noAnswerBucket) {
+    const copy = `<button class="mini-btn copy-msg" data-id="${id}" title="Copiar mensagem pronta">Copiar mensagem</button>`;
+    const back = `<button class="mini-btn na-reset" data-id="${id}" title="Voltar para a fila de ligação">Voltar à fila</button>`;
+    return `<div class="act-row">${eye}${copy}${back}${done}</div>`;
+  }
+  const na = `<button class="mini-btn na-btn" data-id="${id}" title="Ligou e não atenderam">Não atendeu</button>`;
+  return `<div class="act-row">${eye}${na}${done}</div>`;
 }
 
 function fmtDur(min) {
@@ -108,6 +149,7 @@ function paintStats() {
   $('#s-quentes').textContent = t.quentes ?? 0;
   $('#s-aguard').textContent = DATA.aguardando ?? 0;
   $('#s-call24').textContent = DATA.aguardando24h ?? 0;
+  $('#s-naoatendeu').textContent = DATA.naoAtendeu ?? 0;
   $('#s-vendidos').textContent = s.vendidos ?? 0;
   $('#s-when').textContent = fmtWhen(DATA.generatedAt);
   $('#meta').innerHTML = has
@@ -146,14 +188,30 @@ async function toggleDone(id, btn) {
   finally { btn.disabled = false; }
 }
 
+// Register (or reset) a "Não atendeu" call attempt and re-rank live.
+async function noAnswer(id, reset, btn) {
+  btn.disabled = true;
+  try {
+    const res = await authFetch('/api/noanswer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, reset }) });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error);
+    const row = DATA.rows.find((r) => r.conversationId === id);
+    if (row) { row.naoAtendeuCount = j.count; row.naoAtendeuAt = j.at; row.noAnswerBucket = j.count >= 2; }
+    DATA.naoAtendeu = DATA.rows.filter((r) => r.noAnswerBucket).length;
+    toast(reset ? 'Voltou para a fila.' : j.count >= 2 ? 'Movido para "Não atendeu".' : 'Voltou pro fim da fila.');
+    paintStats(); render();
+  } catch (e) { toast('Erro: ' + e.message); }
+  finally { btn.disabled = false; }
+}
+
 function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), 4000);
 }
 
 // Clipboard that also works over plain HTTP on the LAN (no secure context).
-function copyText(text) {
-  const done = () => toast('Número copiado: ' + text);
+function copyText(text, label) {
+  const done = () => toast(label || ('Número copiado: ' + text));
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
   } else { fallbackCopy(text, done); }
@@ -195,9 +253,49 @@ document.querySelectorAll('th[data-k]').forEach((th) => th.addEventListener('cli
 rowsEl.addEventListener('click', (e) => {
   const copy = e.target.closest('.copy');
   if (copy) { copyText(copy.dataset.copy); return; }
+  const eye = e.target.closest('.eye-btn');
+  if (eye) { const r = DATA.rows.find((x) => x.conversationId === eye.dataset.id); openChat(eye.dataset.id, eye.dataset.bot, r || {}); return; }
+  const na = e.target.closest('.na-btn');
+  if (na) { noAnswer(na.dataset.id, false, na); return; }
+  const naReset = e.target.closest('.na-reset');
+  if (naReset) { noAnswer(naReset.dataset.id, true, naReset); return; }
+  const cmsg = e.target.closest('.copy-msg');
+  if (cmsg) { const r = DATA.rows.find((x) => x.conversationId === cmsg.dataset.id); if (r) copyText(noAnswerMsg(r.nome), 'Mensagem copiada.'); return; }
   const done = e.target.closest('.done-btn');
   if (done) toggleDone(done.dataset.id, done);
 });
+
+// ---- chat transcript popup ----
+function fmtTime(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+function closeChat() { $('#chat-modal').hidden = true; $('#chat-body').innerHTML = ''; }
+async function openChat(convId, botId, meta) {
+  $('#chat-title').textContent = meta.nome || 'Conversa';
+  $('#chat-sub').textContent = meta.contato || '';
+  const link = $('#chat-open-direct'); if (link) link.href = meta.chatUrl || '#';
+  const body = $('#chat-body');
+  body.innerHTML = '<div class="chat-state"><div class="spinner"></div></div>';
+  $('#chat-modal').hidden = false;
+  try {
+    const res = await authFetch(`/api/messages/${encodeURIComponent(botId)}/${encodeURIComponent(convId)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Falha');
+    const msgs = data.messages || [];
+    if (!msgs.length) { body.innerHTML = '<div class="chat-state">Sem mensagens.</div>'; return; }
+    body.innerHTML = msgs.map((m) => {
+      const cls = m.sender === 'user' ? 'msg-user' : m.sender === 'agent' ? 'msg-agent' : 'msg-bot';
+      const media = /^\[(imagem|áudio|vídeo|arquivo|mídia)\]$/.test(m.text);
+      const author = m.author ? `<span class="msg-author">${esc(m.author)}</span>` : '';
+      return `<div class="msg ${cls}">${author}<div class="msg-text${media ? ' msg-media' : ''}">${esc(m.text)}</div><span class="msg-time">${esc(fmtTime(m.ts))}</span></div>`;
+    }).join('');
+    body.scrollTop = body.scrollHeight; // start at the latest message
+  } catch { toast('Falha ao carregar a conversa.'); closeChat(); }
+}
+$('#chat-close').addEventListener('click', closeChat);
+$('#chat-modal').addEventListener('click', (e) => { if (e.target.id === 'chat-modal') closeChat(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#chat-modal').hidden) closeChat(); });
 
 // export menu
 $('#btn-export').addEventListener('click', (e) => { e.stopPropagation(); $('#export-menu').hidden = !$('#export-menu').hidden; });

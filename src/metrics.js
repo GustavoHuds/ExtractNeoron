@@ -27,7 +27,7 @@ export function messageText(m) {
 const NAME_BLOCK = /atendimento|grupo|belmont|lojas|bem-?vindo|ol[aá]\b|aguarde|fila/i;
 
 /** Parse a "Nome:" prefix from an agent message. */
-function parseAttendant(text) {
+export function parseAttendant(text) {
   const t = stripHtml(text).trim();
   const m = t.match(/^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.\s]{1,24}?)\s*:/);
   if (!m) return null;

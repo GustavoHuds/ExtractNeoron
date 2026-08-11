@@ -51,6 +51,7 @@
     <div class="stat"><span id="s-quentes">0</span><label>Quentes</label></div>
     <div class="stat"><span id="s-aguard">0</span><label>Aguardando resposta</label></div>
     <div class="stat"><span id="s-call24">0</span><label>Para ligar (+24h)</label></div>
+    <div class="stat"><span id="s-naoatendeu">0</span><label>Não atendeu</label></div>
     <div class="stat"><span id="s-vendidos">0</span><label>Vendidos</label></div>
     <div class="stat"><span id="s-when">—</span><label>Atualizado</label></div>
   </section>
@@ -58,6 +59,7 @@
   <section class="toolbar" id="toolbar" hidden>
     <div class="seg" id="seg-situacao">
       <button data-v="Aberto" class="active">Abertos</button>
+      <button data-v="naoAtendeu">Não atendeu</button>
       <button data-v="all">Todos</button>
       <button data-v="Vendido">Vendidos</button>
       <button data-v="Descartado">Descartados</button>
@@ -91,6 +93,22 @@
       </tbody>
     </table>
   </main>
+
+  <div id="chat-modal" hidden>
+    <div class="chat-card">
+      <header class="chat-head">
+        <div class="chat-who">
+          <strong id="chat-title">Conversa</strong>
+          <span id="chat-sub" class="sub-info"></span>
+        </div>
+        <div class="chat-head-actions">
+          <a id="chat-open-direct" href="#" target="_blank" rel="noopener" title="Abrir no Direct">Abrir no Direct</a>
+          <button id="chat-close" class="icon-btn" title="Fechar (ESC)">✕</button>
+        </div>
+      </header>
+      <div id="chat-body" class="chat-body"></div>
+    </div>
+  </div>
 
   <div id="overlay" hidden><div class="spinner"></div><p id="overlay-msg">Extraindo do Neoron…</p></div>
   <script src="/config.js"></script>

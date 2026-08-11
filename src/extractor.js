@@ -17,8 +17,8 @@ import { config, OUT_JSON, OUT_CSV, ensureDirs } from './config.js';
 import { signIn, runQuery, listDocuments, decodeDoc } from './firestore.js';
 import { detectProducts } from './products.js';
 import { matchProduct } from './catalog.js';
-import { attendantName, responseMetrics, leadScore } from './metrics.js';
-import { loadDone, appendSnapshot } from './store.js';
+import { attendantName, responseMetrics, leadScore, parseAttendant } from './metrics.js';
+import { loadDone, loadNoAnswer, appendSnapshot } from './store.js';
 import { neutralizeCell } from './sanitize.js';
 
 const TAG_NAME = (process.env.NEGOCIANDO_TAG_NAME || 'negociando').toLowerCase();
@@ -90,7 +90,7 @@ async function fetchConversations(idToken, botId) {
 }
 
 /** Fetch the full message history for one conversation (chronological). */
-async function fetchMessages(idToken, botId, convId) {
+export async function fetchMessages(idToken, botId, convId) {
   const out = [];
   let pageToken;
   do {
@@ -114,6 +114,37 @@ function messageText(m) {
 /** Build a transcript string from message docs. */
 function transcriptOf(messages) {
   return messages.map((m) => messageText(m)).filter(Boolean).join('\n');
+}
+
+/** Best-effort label for a non-text (media) message. */
+function mediaLabel(m) {
+  const t = String(m.type || m.message?.type || m.media_type || m.message?.media_type || '').toLowerCase();
+  if (/image|img|foto|photo|sticker/.test(t)) return '[imagem]';
+  if (/audio|voice|ptt/.test(t)) return '[áudio]';
+  if (/video/.test(t)) return '[vídeo]';
+  if (/file|document|doc|pdf/.test(t)) return '[arquivo]';
+  return '[mídia]';
+}
+
+/**
+ * Normalize message docs for the transcript popup.
+ * Returns [{ sender, ts, text, author }] — media messages become a "[mídia]"
+ * placeholder and agent bubbles carry the parsed attendant name (prefix stripped).
+ */
+export function normalizeTranscript(messages) {
+  return messages.map((m) => {
+    let text = messageText(m);
+    let author = null;
+    if (m.sender === 'agent' && text) {
+      const name = parseAttendant(text);
+      if (name) {
+        author = name;
+        text = text.replace(/^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.\s]{1,24}?\s*:\s*/, '');
+      }
+    }
+    if (!text) text = mediaLabel(m);
+    return { sender: m.sender || 'bot', ts: m.created_date || m.id || null, text, author };
+  });
 }
 
 /** Run async tasks with limited concurrency. */
@@ -206,6 +237,7 @@ export async function extractNegociando(auth) {
   const rows = [];
   const pending = []; // rows that still need product detection: { row, botId, convId }
   const doneMap = loadDone();
+  const naMap = loadNoAnswer();
   let scanned = 0;
 
   for (const bot of bots) {
@@ -224,6 +256,7 @@ export async function extractNegociando(auth) {
       const tagNames = tagsOf(conv).map((t) => t.name).filter(Boolean);
       const convId = conv._id;
       const feito = doneMap[conv.conversation_id || convId] || doneMap[convId];
+      const na = naMap[conv.conversation_id || convId] || naMap[convId];
 
       const row = {
         bot: bot.name,
@@ -251,6 +284,9 @@ export async function extractNegociando(auth) {
         aguardando: false,
         aguardandoMin: null,
         paraLigar: false,      // client waiting for a human reply for 24h+ (call queue)
+        naoAtendeuCount: na?.count || 0,        // how many times the call went unanswered
+        naoAtendeuAt: na?.at || null,           // last unanswered-call timestamp (queue re-sink)
+        noAnswerBucket: (na?.count || 0) >= 2,  // 2+ attempts -> "Não atendeu" filter
         primeiraRespostaMin: null,
         respostaMedianaMin: null,
         naoLidas: conv.unread_messages || 0,
@@ -259,6 +295,7 @@ export async function extractNegociando(auth) {
         conversationId: conv.conversation_id || conv._id,
         feito: !!feito,
         feitoAt: feito ? feito.at : null,
+        botId: bot.id,          // needed to fetch the transcript on demand
         chatUrl: `https://direct.neoron.io/${bot.id}/calls`,
       };
       rows.push(row);
@@ -340,6 +377,7 @@ export async function extractNegociando(auth) {
     },
     aguardando: by((r) => r.aguardando),
     aguardando24h: by((r) => r.paraLigar),
+    naoAtendeu: by((r) => r.noAnswerBucket),
     feitos: by((r) => r.feito),
     rows,
   };
@@ -395,6 +433,7 @@ export function summarizeRows(rows) {
     },
     aguardando: by((r) => r.aguardando),
     aguardando24h: by((r) => r.paraLigar),
+    naoAtendeu: by((r) => r.noAnswerBucket),
     feitos: by((r) => r.feito),
   };
 }

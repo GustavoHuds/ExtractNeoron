@@ -12,6 +12,7 @@ export const OUT_JSON = path.join(DATA_DIR, 'negociando.json');
 export const OUT_CSV = path.join(DATA_DIR, 'negociando.csv');
 export const OUT_XLSX = path.join(DATA_DIR, 'negociando.xlsx');
 export const DONE_FILE = path.join(DATA_DIR, 'done.json');
+export const NOANSWER_FILE = path.join(DATA_DIR, 'noanswer.json');
 export const HISTORY_FILE = path.join(DATA_DIR, 'history.jsonl');
 export const TIMELINE_JSON = path.join(DATA_DIR, 'timeline.json');
 
