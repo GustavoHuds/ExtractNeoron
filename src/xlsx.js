@@ -79,10 +79,13 @@ export async function buildWorkbook(result) {
     ['Gerado em', new Date(result.generatedAt).toLocaleString('pt-BR')],
     ['Conta', result.account],
     ['Conversas varridas', result.conversationsScanned],
-    ['Total em Negociando', result.count],
+    ...(result.filtered
+      ? [['Exportados (filtro atual)', result.count], ['Total em Negociando', result.totalCarteira]]
+      : [['Total em Negociando', result.count]]),
     ['— Abertos', s.abertos], ['— Vendidos', s.vendidos], ['— Descartados', s.descartados],
     ['Quentes', t.quentes], ['Mornos', t.mornos], ['Frios', t.frios],
     ['Clientes aguardando', result.aguardando],
+    ['Aguardando +24h (fila)', result.aguardando24h],
     ['Marcados como Feito', result.feitos],
   ];
   lines.forEach((l) => rs.addRow({ k: l[0], v: l[1] }));

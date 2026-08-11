@@ -2,6 +2,7 @@ import { login, refresh, clearAuth, currentUser, authFetch } from './auth.js';
 let DATA = { rows: [] };
 let sortKey = null, sortDir = 1;
 let filterSituacao = 'Aberto';
+let onlyCall24h = true; // call queue: show only clients waiting for a reply for 24h+
 const tempOn = { quente: true, morno: true, frio: true };
 const AUTO_MS = 15 * 60 * 1000;
 let nextAuto = Date.now() + AUTO_MS;
@@ -28,6 +29,7 @@ function visibleRows() {
   const hideDone = $('#hide-done').checked;
   let rows = DATA.rows.slice();
   if (filterSituacao !== 'all') rows = rows.filter((r) => r.situacao === filterSituacao);
+  if (onlyCall24h) rows = rows.filter((r) => r.paraLigar);
   rows = rows.filter((r) => tempOn[r.temperatura]);
   if (hideDone) rows = rows.filter((r) => !r.feito);
   if (q) rows = rows.filter((r) =>
@@ -54,7 +56,8 @@ function render() {
   rowsEl.innerHTML = rows.map((r) => {
     const temp = `<span class="temp-tag t-${r.temperatura}">${TEMP_LABEL[r.temperatura]}</span>`;
     const sit = `<span class="badge-sit s-${r.situacao.toLowerCase()}">${r.situacao}</span>`;
-    const wait = r.aguardando ? `<span class="badge-wait" title="Cliente enviou a última mensagem e aguarda resposta">Aguardando${r.aguardandoMin != null ? ' ' + fmtDur(r.aguardandoMin) : ''}</span>` : '';
+    const waitU = r.aguardandoMin == null ? '' : r.aguardandoMin >= 72 * 60 ? ' u3' : r.aguardandoMin >= 48 * 60 ? ' u2' : r.aguardandoMin >= 24 * 60 ? ' u1' : '';
+    const wait = r.aguardando ? `<span class="badge-wait${waitU}" title="Cliente enviou a última mensagem e aguarda resposta">Aguardando${r.aguardandoMin != null ? ' ' + fmtDur(r.aguardandoMin) : ''}</span>` : '';
     const prodCls = r.produtoFonte === 'catálogo' ? 'prod cat' : 'prod';
     const preco = (typeof r.produtoPreco === 'number' && r.produtoPreco > 0)
       ? ` <span class="preco">R$ ${r.produtoPreco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>` : '';
@@ -104,6 +107,7 @@ function paintStats() {
   $('#s-abertos').textContent = s.abertos ?? 0;
   $('#s-quentes').textContent = t.quentes ?? 0;
   $('#s-aguard').textContent = DATA.aguardando ?? 0;
+  $('#s-call24').textContent = DATA.aguardando24h ?? 0;
   $('#s-vendidos').textContent = s.vendidos ?? 0;
   $('#s-when').textContent = fmtWhen(DATA.generatedAt);
   $('#meta').innerHTML = has
@@ -169,6 +173,7 @@ const WA_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentCo
 $('#btn-extract').addEventListener('click', () => extract(false));
 $('#search').addEventListener('input', render);
 $('#hide-done').addEventListener('change', render);
+$('#only-24h').addEventListener('change', (e) => { onlyCall24h = e.target.checked; render(); });
 
 $('#seg-situacao').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
@@ -280,12 +285,18 @@ $('#user-chip').addEventListener('click', (e) => { e.stopPropagation(); $('#user
 $('#btn-logout').addEventListener('click', (e) => { e.preventDefault(); clearAuth(); location.reload(); });
 document.addEventListener('click', () => { $('#user-menu').hidden = true; });
 
-// authenticated downloads (blob via Bearer)
+// authenticated downloads (blob via Bearer) — export mirrors the current list filter
 $('#export-menu').addEventListener('click', async (e) => {
   const a = e.target.closest('[data-dl]'); if (!a) return;
   e.preventDefault();
   const url = a.dataset.dl === 'xlsx' ? '/api/download.xlsx' : '/api/download';
-  const res = await authFetch(url);
+  const ids = visibleRows().map((r) => r.conversationId);
+  if (!ids.length) { toast('Nada para exportar neste filtro.'); return; }
+  const res = await authFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
   if (!res.ok) { toast('Nada para exportar ainda.'); return; }
   const blob = await res.blob();
   const link = document.createElement('a');

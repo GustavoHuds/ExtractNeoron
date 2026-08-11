@@ -87,6 +87,10 @@ tr.done .nm { text-decoration: line-through; }
 .s-vendido { color: var(--sold); background: var(--sold-weak); }
 .s-descartado { color: var(--danger); background: var(--danger-weak); }
 .badge-wait { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: var(--r-sm); color: var(--warm); background: var(--warm-weak); }
+/* Call-queue urgency: 24h+ (u1) → 48h+ (u2) → 72h+ (u3), increasing severity. */
+.badge-wait.u1 { color: var(--warm); background: var(--warm-weak); }
+.badge-wait.u2 { color: var(--hot); background: var(--hot-weak); }
+.badge-wait.u3 { color: #fff; background: var(--hot); }
 .motivo { margin-top: 5px; font-size: 12px; color: var(--muted); }
 .motivo { color: var(--text-2); }
 .motivo.t-quente, .motivo.t-morno, .motivo.t-frio { color: var(--text-2); }

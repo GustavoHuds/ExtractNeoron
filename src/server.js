@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config, OUT_JSON, OUT_CSV } from './config.js';
-import { extractNegociando } from './extractor.js';
+import { config, OUT_JSON } from './config.js';
+import { extractNegociando, toCsv, summarizeRows } from './extractor.js';
 import { buildWorkbook } from './xlsx.js';
 import { buildTimeline, loadCachedTimeline } from './timeline.js';
 import { setDone } from './store.js';
@@ -113,15 +113,33 @@ app.post('/api/catalog', (req, res) => {
   }
 });
 
-app.get('/api/download', (_req, res) => {
-  if (!fs.existsSync(OUT_CSV)) return res.status(404).send('Nenhum dado ainda. Clique em Extrair.');
-  res.download(OUT_CSV, 'negociando.csv');
+/**
+ * Build an export result honoring the caller's current list filter.
+ * When `ids` is a non-empty array, keep only those conversations (in the given
+ * order) and recompute the summary so the totals match what was exported.
+ */
+function exportResult(ids) {
+  const result = JSON.parse(fs.readFileSync(OUT_JSON, 'utf8'));
+  if (!Array.isArray(ids) || !ids.length) return result;
+  const rank = new Map(ids.map((id, i) => [id, i]));
+  const rows = result.rows
+    .filter((r) => rank.has(r.conversationId))
+    .sort((a, b) => rank.get(a.conversationId) - rank.get(b.conversationId));
+  return { ...result, ...summarizeRows(rows), rows, filtered: true, totalCarteira: result.count };
+}
+
+app.post('/api/download', (req, res) => {
+  if (!fs.existsSync(OUT_JSON)) return res.status(404).send('Nenhum dado ainda. Clique em Extrair.');
+  const { rows } = exportResult(req.body?.ids);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="negociando.csv"');
+  res.send(toCsv(rows));
 });
 
-app.get('/api/download.xlsx', async (_req, res) => {
+app.post('/api/download.xlsx', async (req, res) => {
   if (!fs.existsSync(OUT_JSON)) return res.status(404).send('Nenhum dado ainda. Clique em Extrair.');
   try {
-    const wb = await buildWorkbook(JSON.parse(fs.readFileSync(OUT_JSON, 'utf8')));
+    const wb = await buildWorkbook(exportResult(req.body?.ids));
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="negociando.xlsx"');
     await wb.xlsx.write(res);

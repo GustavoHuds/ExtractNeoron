@@ -250,6 +250,7 @@ export async function extractNegociando(auth) {
         interesseScore: null,
         aguardando: false,
         aguardandoMin: null,
+        paraLigar: false,      // client waiting for a human reply for 24h+ (call queue)
         primeiraRespostaMin: null,
         respostaMedianaMin: null,
         naoLidas: conv.unread_messages || 0,
@@ -299,6 +300,8 @@ export async function extractNegociando(auth) {
       row.respostaMedianaMin = msToMin(rm.medianResponseMs);
       row.aguardando = rm.awaiting;
       row.aguardandoMin = msToMin(rm.awaitingSinceMs);
+      // Call queue: client is still waiting for a human reply, and has been for 24h+.
+      row.paraLigar = row.aguardando && row.aguardandoMin != null && row.aguardandoMin >= 24 * 60;
 
       // lead temperature from conversation signals (interest / disinterest)
       const ls = leadScore(messages, { situacao: row.situacao, horasDesde });
@@ -310,11 +313,11 @@ export async function extractNegociando(auth) {
     }
   });
 
-  // Sort: hottest first, then customers who are waiting, then most recent.
+  // Sort: longest-waiting first (call queue by seniority), then hottest, then most recent.
   const TEMP_ORDER = { quente: 0, morno: 1, frio: 2 };
   rows.sort((a, b) =>
+    ((b.aguardandoMin || 0) - (a.aguardandoMin || 0)) ||
     (TEMP_ORDER[a.temperatura] - TEMP_ORDER[b.temperatura]) ||
-    (Number(b.aguardando) - Number(a.aguardando)) ||
     ((b.ultimaInteracaoMs || 0) - (a.ultimaInteracaoMs || 0)));
 
   const by = (pred) => rows.filter(pred).length;
@@ -336,6 +339,7 @@ export async function extractNegociando(auth) {
       frios: by((r) => r.temperatura === 'frio'),
     },
     aguardando: by((r) => r.aguardando),
+    aguardando24h: by((r) => r.paraLigar),
     feitos: by((r) => r.feito),
     rows,
   };
@@ -374,7 +378,28 @@ const CSV_COLS = [
   ['canal', 'Canal'], ['conversationId', 'Conversation ID'],
 ];
 
-function toCsv(rows) {
+/** Recompute the summary counts for an arbitrary subset of rows (used by filtered export). */
+export function summarizeRows(rows) {
+  const by = (pred) => rows.filter(pred).length;
+  return {
+    count: rows.length,
+    situacao: {
+      abertos: by((r) => r.situacao === 'Aberto'),
+      vendidos: by((r) => r.situacao === 'Vendido'),
+      descartados: by((r) => r.situacao === 'Descartado'),
+    },
+    temperatura: {
+      quentes: by((r) => r.temperatura === 'quente'),
+      mornos: by((r) => r.temperatura === 'morno'),
+      frios: by((r) => r.temperatura === 'frio'),
+    },
+    aguardando: by((r) => r.aguardando),
+    aguardando24h: by((r) => r.paraLigar),
+    feitos: by((r) => r.feito),
+  };
+}
+
+export function toCsv(rows) {
   const esc = (v) => {
     if (Array.isArray(v)) v = v.join(' | ');
     if (v == null) v = '';
