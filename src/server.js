@@ -9,11 +9,23 @@ import { extractNegociando } from './extractor.js';
 import { buildWorkbook } from './xlsx.js';
 import { buildTimeline, loadCachedTimeline } from './timeline.js';
 import { setDone } from './store.js';
+import { requireAuth } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; " +
+    "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; " +
+    "img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; " +
+    "base-uri 'none'; frame-ancestors 'none'");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
 app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use('/api', requireAuth);
 
 let extracting = false;
 let buildingTimeline = false;
@@ -23,11 +35,11 @@ app.get('/api/data', (_req, res) => {
   res.json({ count: 0, rows: [], generatedAt: null });
 });
 
-app.post('/api/extract', async (_req, res) => {
+app.post('/api/extract', async (req, res) => {
   if (extracting) return res.status(429).json({ error: 'Extração já em andamento.' });
   extracting = true;
-  try { res.json(await extractNegociando()); }
-  catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+  try { res.json(await extractNegociando(req.auth)); }
+  catch (e) { console.error(e); res.status(500).json({ error: 'Falha ao processar. Tente novamente.' }); }
   finally { extracting = false; }
 });
 
@@ -52,24 +64,24 @@ app.get('/api/download.xlsx', async (_req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename="negociando.xlsx"');
     await wb.xlsx.write(res);
     res.end();
-  } catch (e) { console.error(e); res.status(500).send(e.message); }
+  } catch (e) { console.error(e); res.status(500).send('Falha ao gerar o arquivo.'); }
 });
 
-app.get('/api/timeline', async (_req, res) => {
+app.get('/api/timeline', async (req, res) => {
   const cached = loadCachedTimeline();
   if (cached) return res.json(cached);
   if (buildingTimeline) return res.status(202).json({ building: true });
   buildingTimeline = true;
-  try { res.json(await buildTimeline()); }
-  catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+  try { res.json(await buildTimeline(req.auth)); }
+  catch (e) { console.error(e); res.status(500).json({ error: 'Falha ao processar. Tente novamente.' }); }
   finally { buildingTimeline = false; }
 });
 
-app.post('/api/timeline/refresh', async (_req, res) => {
+app.post('/api/timeline/refresh', async (req, res) => {
   if (buildingTimeline) return res.status(429).json({ error: 'Timeline já está sendo gerada.' });
   buildingTimeline = true;
-  try { res.json(await buildTimeline()); }
-  catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+  try { res.json(await buildTimeline(req.auth)); }
+  catch (e) { console.error(e); res.status(500).json({ error: 'Falha ao processar. Tente novamente.' }); }
   finally { buildingTimeline = false; }
 });
 

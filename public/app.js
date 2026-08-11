@@ -1,3 +1,4 @@
+import { login, refresh, clearAuth, currentUser, authFetch } from './auth.js';
 let DATA = { rows: [] };
 let sortKey = null, sortDir = 1;
 let filterSituacao = 'Aberto';
@@ -7,7 +8,7 @@ let nextAuto = Date.now() + AUTO_MS;
 
 const $ = (s) => document.querySelector(s);
 const rowsEl = $('#rows');
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = (s) => String(s ?? '').replace(/[&<>"'`]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c]));
 
 function fmtWhen(iso) {
   if (!iso) return '—';
@@ -115,7 +116,7 @@ async function extract(auto = false) {
   btn.disabled = true; $('#overlay-msg').textContent = auto ? 'Atualização automática…' : 'Extraindo do Neoron…';
   $('#overlay').hidden = false;
   try {
-    const res = await fetch('/api/extract', { method: 'POST' });
+    const res = await authFetch('/api/extract', { method: 'POST' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Falha na extração');
     DATA = data; paintStats(); render();
@@ -124,7 +125,7 @@ async function extract(auto = false) {
 }
 
 async function loadCached() {
-  try { DATA = await (await fetch('/api/data')).json(); paintStats(); render(); } catch {}
+  try { DATA = await (await authFetch('/api/data')).json(); paintStats(); render(); } catch {}
 }
 
 async function toggleDone(id, btn) {
@@ -132,7 +133,7 @@ async function toggleDone(id, btn) {
   const done = !(row && row.feito);
   btn.disabled = true;
   try {
-    const res = await fetch('/api/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, done }) });
+    const res = await authFetch('/api/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, done }) });
     const j = await res.json();
     if (!res.ok) throw new Error(j.error);
     if (row) { row.feito = j.feito; row.feitoAt = j.at; }
@@ -205,4 +206,59 @@ setInterval(() => {
   $('#auto').textContent = `Atualiza em ${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }, 1000);
 
-loadCached();
+// ---- auth gate + header ----
+function paintUser() {
+  const email = currentUser() || '';
+  $('#user-name').textContent = email || '—';
+  $('#user-initial').textContent = (email[0] || '·').toUpperCase();
+}
+function showLogin(show) { $('#login').hidden = !show; }
+
+// After a successful login (fresh or auto): show the last snapshot instantly,
+// then automatically analyse fresh data from Neoron.
+async function afterAuth() {
+  showLogin(false);
+  paintUser();
+  await loadCached();   // instant: last saved snapshot, if any
+  extract(false);       // auto-analyse (fetches + filters "negociando" from Neoron)
+}
+
+async function boot() {
+  try {
+    await refresh();          // auto-login with stored refresh token
+    await afterAuth();
+  } catch {
+    showLogin(true);
+  }
+}
+
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('#login-btn'), err = $('#login-err');
+  btn.disabled = true; err.hidden = true;
+  try {
+    await login($('#login-email').value.trim(), $('#login-pass').value);
+    await afterAuth();
+  } catch (ex) { err.textContent = ex.message; err.hidden = false; }
+  finally { btn.disabled = false; }
+});
+
+$('#user-chip').addEventListener('click', (e) => { e.stopPropagation(); $('#user-menu').hidden = !$('#user-menu').hidden; });
+$('#btn-logout').addEventListener('click', (e) => { e.preventDefault(); clearAuth(); location.reload(); });
+document.addEventListener('click', () => { $('#user-menu').hidden = true; });
+
+// authenticated downloads (blob via Bearer)
+$('#export-menu').addEventListener('click', async (e) => {
+  const a = e.target.closest('[data-dl]'); if (!a) return;
+  e.preventDefault();
+  const url = a.dataset.dl === 'xlsx' ? '/api/download.xlsx' : '/api/download';
+  const res = await authFetch(url);
+  if (!res.ok) { toast('Nada para exportar ainda.'); return; }
+  const blob = await res.blob();
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = a.dataset.dl === 'xlsx' ? 'negociando.xlsx' : 'negociando.csv';
+  link.click(); URL.revokeObjectURL(link.href);
+});
+
+boot();

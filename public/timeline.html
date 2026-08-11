@@ -7,13 +7,21 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
+  <div id="login" class="login-scrim" hidden>
+    <form class="login-card" id="login-form">
+      <div class="login-brand"><span class="logo">EN</span><b>ExtractNeoron</b></div>
+      <p class="login-sub">Entre com sua conta do Neoron</p>
+      <label>E-mail<input type="email" id="login-email" autocomplete="username" required></label>
+      <label>Senha<input type="password" id="login-pass" autocomplete="current-password" required></label>
+      <button class="primary" type="submit" id="login-btn">Entrar</button>
+      <p class="login-err" id="login-err" hidden></p>
+    </form>
+  </div>
+
+  <header class="topbar">
     <div class="brand">
-      <span class="mark">N</span>
-      <div>
-        <h1>Métricas &amp; Desempenho</h1>
-        <p class="sub" id="meta">Carregando…</p>
-      </div>
+      <span class="logo">EN</span>
+      <div><h1>ExtractNeoron</h1><p class="sub" id="meta">Métricas &amp; Desempenho</p></div>
     </div>
     <nav class="tabs">
       <a class="tab" href="/">Leads</a>
@@ -21,15 +29,19 @@
     </nav>
     <div class="actions">
       <button id="btn-refresh" class="primary">Recalcular</button>
+      <div class="usermenu">
+        <button id="user-chip" class="user-chip"><span class="avatar" id="user-initial">·</span><span id="user-name">—</span></button>
+        <div class="menu-list" id="user-menu" hidden><a href="#" id="btn-logout">Sair</a></div>
+      </div>
     </div>
   </header>
 
   <div class="tl-wrap">
     <div class="kpis" id="kpis"></div>
-    <div class="tl-grid" id="grid"></div>
+    <div id="grid"></div>
   </div>
 
   <div id="overlay" hidden><div class="spinner"></div><p>Calculando métricas (lendo conversas)…</p></div>
-  <script src="timeline.js"></script>
+  <script type="module" src="timeline.js"></script>
 </body>
 </html>

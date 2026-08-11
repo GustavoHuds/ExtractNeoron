@@ -1,106 +1,138 @@
+import { login, refresh, clearAuth, currentUser, authFetch } from './auth.js';
+import { barChart, lineChart, multiLineChart, hbars } from './charts.js';
+
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = (s) => String(s ?? '').replace(/[&<>"'`]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c]));
 const fmtMin = (m) => m == null ? '—' : m < 60 ? `${m} min` : m < 2880 ? `${(m / 60).toFixed(1)} h` : `${Math.round(m / 1440)} d`;
+const shortDay = (d) => String(d).slice(5); // MM-DD
 
-function card(title, hint, body) {
-  return `<div class="card"><h3>${title}</h3>${hint ? `<p class="hint">${hint}</p>` : ''}${body}</div>`;
+const STATUS_PT = {
+  CHATBOT: 'Bot', TAKEOVER_QUEUE: 'Na fila', TAKEOVER_ATTEMPT: 'Tentando atender',
+  TAKEOVER_IN_ATTENDANCE: 'Em atendimento', TAKEOVER_FINISHED: 'Finalizado', FINISHED: 'Finalizado',
+};
+
+function card(title, hint, body, wide = false) {
+  return `<div class="card${wide ? ' card-wide' : ''}"><h3>${esc(title)}</h3>${hint ? `<p class="hint">${esc(hint)}</p>` : ''}${body}</div>`;
 }
-
-function barChart(data, key, labelKey, color = 'var(--accent)') {
-  const w = 620, h = 190, pad = 26;
-  if (!data.length) return '<p class="hint">Sem dados.</p>';
-  const max = Math.max(1, ...data.map((d) => d[key] || 0));
-  const bw = (w - pad * 2) / data.length;
-  const step = Math.ceil(data.length / 8) || 1;
-  const bars = data.map((d, i) => {
-    const bh = (h - pad * 2) * ((d[key] || 0) / max);
-    const x = pad + i * bw, y = h - pad - bh;
-    return `<rect x="${x + 2}" y="${y}" width="${Math.max(1, bw - 4)}" height="${bh}" rx="2" fill="${color}"><title>${esc(d[labelKey])}: ${d[key] ?? 0}</title></rect>`
-      + (i % step === 0 ? `<text x="${x + bw / 2}" y="${h - 8}" text-anchor="middle">${esc(String(d[labelKey]).slice(5))}</text>` : '');
-  }).join('');
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%"><text x="${pad}" y="14">máx ${max}</text>${bars}</svg>`;
-}
-
-function lineChart(data, key, labelKey, color = 'var(--warm)') {
-  const w = 620, h = 190, pad = 30;
-  const pts = data.filter((d) => d[key] != null);
-  if (pts.length < 2) return '<p class="hint">Amostra insuficiente.</p>';
-  const max = Math.max(1, ...pts.map((d) => d[key]));
-  const x = (i) => pad + (w - pad * 2) * (i / (pts.length - 1));
-  const y = (v) => h - pad - (h - pad * 2) * (v / max);
-  const line = pts.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ');
-  const dots = pts.map((d, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(d[key]).toFixed(1)}" r="2.5" fill="${color}"><title>${esc(d[labelKey])}: ${fmtMin(d[key])}</title></circle>`).join('');
-  const step = Math.ceil(pts.length / 8) || 1;
-  const labels = pts.map((d, i) => i % step === 0 ? `<text x="${x(i)}" y="${h - 8}" text-anchor="middle">${esc(String(d[labelKey]).slice(5))}</text>` : '').join('');
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%"><text x="${pad}" y="14">máx ${fmtMin(max)}</text><path d="${line}" fill="none" stroke="${color}" stroke-width="2"/>${dots}${labels}</svg>`;
-}
-
-function hbars(items, opts = {}) {
-  const { fmt = (v) => v, color = 'var(--accent)' } = opts;
-  const max = Math.max(1, ...items.map((i) => i.value));
-  return items.map((it) => `
-    <div class="bar-row">
-      <div title="${esc(it.label)}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.label)}</div>
-      <div class="bar-track"><div class="bar-fill" style="width:${(it.value / max * 100).toFixed(1)}%;background:${it.color || color}"></div></div>
-      <div style="text-align:right">${fmt(it.value)}</div>
-    </div>`).join('');
+function section(title, cardsHtml) {
+  return `<h2 class="section-title">${esc(title)}</h2><div class="tl-grid">${cardsHtml}</div>`;
 }
 
 function render(t) {
+  const ag = t.atendentes || [];
+  const sumAguardando = ag.reduce((a, x) => a + x.aguardando, 0);
   $('#meta').innerHTML = `Conta <strong>${esc(t.account || '')}</strong> · ${t.totalConversas} conversas · atualizado ${new Date(t.generatedAt).toLocaleString('pt-BR')}`;
 
+  // ---- KPI strip ----
   $('#kpis').innerHTML = [
-    ['1ª resposta (mediana)', fmtMin(t.velocidade.primeiraRespostaMedianaMin), 'tempo real cliente→atendente'],
+    ['Conversas', String(t.totalConversas), 'contatos no período'],
+    ['Conversão', `${t.conversao.taxa}%`, `${t.conversao.vendidos} vendas de ${t.conversao.entraram} contatos`],
+    ['Vendas', String(t.conversao.vendidos), 'tag "venda realizada"'],
+    ['Em negociação', String(t.conversao.negociando), 'abertos + vendidos + descartados'],
+    ['1ª resposta (mediana)', fmtMin(t.velocidade.primeiraRespostaMedianaMin), 'cliente → atendente'],
     ['1ª resposta (média)', fmtMin(t.velocidade.primeiraRespostaMediaMin), 'inflada por respostas noturnas'],
-    ['Conversão', `${t.conversao.taxa}%`, `${t.conversao.vendidos} vendas / ${t.conversao.entraram} em negociação`],
-    ['Aguardando resposta', String(t.atendentes.reduce((a, x) => a + x.aguardando, 0)), 'clientes sem resposta agora'],
-    ['Conversas (amostra)', String(t.respostaAmostras), 'últimos 45 dias'],
-  ].map(([k, v, s]) => `<div class="kpi"><small>${k}</small><b>${v}</b><small>${s}</small></div>`).join('');
+    ['Aguardando agora', String(sumAguardando), 'clientes sem resposta'],
+    ['Atendentes', String(ag.length), 'ativos na amostra (45d)'],
+  ].map(([k, v, s]) => `<div class="kpi"><small>${esc(k)}</small><b>${esc(v)}</b><small>${esc(s)}</small></div>`).join('');
 
-  const sit = t.situacao;
-  const sitBars = hbars([
-    { label: 'Aberto', value: sit.Aberto, color: 'var(--cold)' },
-    { label: 'Vendido', value: sit.Vendido, color: 'var(--ok)' },
-    { label: 'Descartado', value: sit.Descartado, color: 'var(--hot)' },
-  ]);
+  // ---- Comparativo entre atendentes ----
+  const cmpConversas = hbars(ag.map((a) => ({ label: a.nome, value: a.conversas })));
+  const cmpVendas = hbars(ag.map((a) => ({ label: a.nome, value: a.vendas, color: 'var(--sold)' })));
+  const cmpConv = hbars(ag.map((a) => ({ label: a.nome, value: a.taxaConversao, color: 'var(--accent)' })), { fmt: (v) => `${v}%` });
+  const cmpResp = hbars(ag.filter((a) => a.primeiraRespostaMedianaMin != null)
+    .map((a) => ({ label: a.nome, value: a.primeiraRespostaMedianaMin, color: 'var(--warm)' })), { fmt: fmtMin });
+  const cmpAguard = hbars(ag.map((a) => ({ label: a.nome, value: a.aguardando, color: 'var(--hot)' })));
 
-  const distBars = hbars(t.velocidade.distribuicao.map((d) => ({
-    label: d.faixa, value: d.n,
-    color: /4 h|> 4|1–4/.test(d.faixa) ? 'var(--hot)' : 'var(--accent)',
+  const agTable = `<div class="tbl-wrap"><table class="metrics-tbl"><thead><tr>
+    <th>Atendente</th><th>Conversas</th><th>% vol.</th><th>Chats mês</th><th>Abertos</th>
+    <th>Vendas</th><th>Descart.</th><th>Conversão</th><th>1ª resp. mediana</th><th>1ª resp. média</th><th>Aguardando</th>
+    </tr></thead><tbody>
+    ${ag.map((a) => `<tr>
+      <td class="ag-name">${esc(a.nome)}</td>
+      <td>${a.conversas}</td><td>${a.pctVolume}%</td><td>${a.chatsMes}</td><td>${a.abertos}</td>
+      <td>${a.vendas}</td><td>${a.descartados}</td><td>${a.taxaConversao}%</td>
+      <td class="${a.primeiraRespostaMedianaMin && a.primeiraRespostaMedianaMin >= 240 ? 'slow' : ''}">${fmtMin(a.primeiraRespostaMedianaMin)}</td>
+      <td>${fmtMin(a.primeiraRespostaMediaMin)}</td><td>${a.aguardando}</td></tr>`).join('')}
+    </tbody></table></div>`;
+
+  // ---- Velocidade ----
+  const speed = lineChart(t.respostaPorDia.map((d) => ({ label: shortDay(d.dia), value: d.medianaMin })), { color: 'var(--warm)', fmt: (v) => `${v}m` });
+  const dist = hbars(t.velocidade.distribuicao.map((d) => ({
+    label: d.faixa, value: d.n, color: /4 h|> 4/.test(d.faixa) ? 'var(--hot)' : 'var(--accent)',
   })));
 
-  const agBars = hbars(t.atendentes.map((a) => ({ label: a.nome, value: a.conversas })), { fmt: (v) => v });
-  const agTable = `<table style="width:100%;margin-top:8px"><thead><tr>
-    <th>Atendente</th><th>Conversas</th><th>1ª resp.</th><th>Vendas</th><th>Aguard.</th></tr></thead><tbody>
-    ${t.atendentes.map((a) => `<tr>
-      <td>${esc(a.nome)}</td><td>${a.conversas}</td><td>${fmtMin(a.medianaRespostaMin)}</td>
-      <td>${a.vendas}</td><td>${a.aguardando}</td></tr>`).join('')}</tbody></table>`;
+  // ---- Volume & funil ----
+  const volume = barChart(t.volumePorDia.map((d) => ({ label: shortDay(d.dia), value: d.novas })), { color: 'var(--accent)' });
+  const funnel = hbars([
+    { label: 'Aberto', value: t.situacao.Aberto, color: 'var(--cold)' },
+    { label: 'Vendido', value: t.situacao.Vendido, color: 'var(--sold)' },
+    { label: 'Descartado', value: t.situacao.Descartado, color: 'var(--hot)' },
+  ]);
+  const statusBars = hbars((t.statusDist || []).map((s) => ({ label: STATUS_PT[s.status] || s.status, value: s.n })));
 
-  const histBody = t.historico && t.historico.length > 1
-    ? lineChart(t.historico.map((h) => ({ dia: (h.at || '').slice(5, 16).replace('T', ' '), abertos: h.abertos })), 'abertos', 'dia', 'var(--cold)')
-    : '<p class="hint">O histórico do pipeline é acumulado a cada extração. Rode "Extrair" algumas vezes ao longo dos dias para ver a evolução.</p>';
+  // ---- Pipeline over time ----
+  const H = t.historico || [];
+  const xlab = (h) => (h.at || '').slice(5, 10);
+  const pipeline = H.length > 1
+    ? multiLineChart([
+        { label: 'Abertos', color: 'var(--cold)', points: H.map((h) => ({ label: xlab(h), value: h.abertos })) },
+        { label: 'Vendidos', color: 'var(--sold)', points: H.map((h) => ({ label: xlab(h), value: h.vendidos })) },
+        { label: 'Descartados', color: 'var(--hot)', points: H.map((h) => ({ label: xlab(h), value: h.descartados })) },
+        { label: 'Aguardando', color: 'var(--warm)', points: H.map((h) => ({ label: xlab(h), value: h.aguardando })) },
+      ])
+    : '<p class="hint">O histórico do pipeline é acumulado a cada extração. Rode "Extrair" ao longo dos dias para ver a evolução.</p>';
 
-  $('#grid').innerHTML = [
-    card('Volume de conversas por dia', 'novas conversas iniciadas', barChart(t.volumePorDia, 'novas', 'dia')),
-    card('Velocidade de 1ª resposta (mediana/dia)', 'tempo real entre a pergunta do cliente e a resposta do atendente', lineChart(t.respostaPorDia, 'medianaMin', 'dia')),
-    card('Distribuição da 1ª resposta', 'quantas conversas em cada faixa de tempo — vermelho = lento', distBars),
-    card('Funil / Situação', 'leads que entraram em negociação', sitBars),
-    card('Volume por atendente', 'conversas atendidas', agBars + agTable),
-    card('Pipeline ao longo do tempo', 'leads abertos por extração', histBody),
-  ].join('');
+  $('#grid').innerHTML =
+    section('Comparativo entre atendentes',
+      card('Ranking completo', 'todas as métricas por atendente — o vermelho na 1ª resposta indica > 4 h', agTable, true) +
+      card('Conversas por atendente', 'volume total atendido', cmpConversas) +
+      card('Vendas por atendente', 'negócios fechados (tag venda realizada)', cmpVendas) +
+      card('Conversão por atendente', 'vendas ÷ conversas atendidas', cmpConv) +
+      card('1ª resposta por atendente', 'mediana — menor é melhor', cmpResp) +
+      card('Aguardando por atendente', 'clientes sem resposta agora', cmpAguard)) +
+    section('Velocidade de resposta',
+      card('Velocidade de 1ª resposta (mediana/dia)', 'tempo real entre a pergunta do cliente e a resposta', speed, true) +
+      card('Distribuição da 1ª resposta', 'quantas conversas em cada faixa — vermelho = lento (> 4 h)', dist)) +
+    section('Volume & funil',
+      card('Volume de conversas por dia', 'novas conversas iniciadas', volume, true) +
+      card('Funil / Situação', 'leads que entraram em negociação', funnel) +
+      card('Status no sistema', 'em que etapa as conversas estão agora', statusBars)) +
+    section('Pipeline ao longo do tempo',
+      card('Evolução do pipeline', 'abertos · vendidos · descartados · aguardando por extração', pipeline, true));
 }
 
-async function load(refresh) {
+async function load(refreshData) {
   $('#overlay').hidden = false;
   try {
-    const res = await fetch(refresh ? '/api/timeline/refresh' : '/api/timeline', { method: refresh ? 'POST' : 'GET' });
+    const res = await authFetch(refreshData ? '/api/timeline/refresh' : '/api/timeline', { method: refreshData ? 'POST' : 'GET' });
     const t = await res.json();
     if (!res.ok) throw new Error(t.error || 'Falha');
     render(t);
-  } catch (e) {
-    $('#meta').textContent = 'Erro: ' + e.message;
-  } finally { $('#overlay').hidden = true; }
+  } catch (e) { $('#meta').textContent = 'Erro: ' + e.message; }
+  finally { $('#overlay').hidden = true; }
 }
 
+// ---- auth gate + header ----
+function paintUser() {
+  const email = currentUser() || '';
+  $('#user-name').textContent = email || '—';
+  $('#user-initial').textContent = (email[0] || '·').toUpperCase();
+}
+async function boot() {
+  try { await refresh(); $('#login').hidden = true; paintUser(); load(false); }
+  catch { $('#login').hidden = false; }
+}
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('#login-btn'), err = $('#login-err');
+  btn.disabled = true; err.hidden = true;
+  try { await login($('#login-email').value.trim(), $('#login-pass').value); $('#login').hidden = true; paintUser(); load(false); }
+  catch (ex) { err.textContent = ex.message; err.hidden = false; }
+  finally { btn.disabled = false; }
+});
+$('#user-chip').addEventListener('click', (e) => { e.stopPropagation(); $('#user-menu').hidden = !$('#user-menu').hidden; });
+$('#btn-logout').addEventListener('click', (e) => { e.preventDefault(); clearAuth(); location.reload(); });
+document.addEventListener('click', () => { $('#user-menu').hidden = true; });
 $('#btn-refresh').addEventListener('click', () => load(true));
-load(false);
+
+boot();
