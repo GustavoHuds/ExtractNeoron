@@ -217,14 +217,14 @@ $('#catalog-file').addEventListener('change', async (e) => {
   e.target.value = '';
   if (!file) return;
   try {
-    const items = JSON.parse(await file.text());
+    const text = await file.text();   // CSV or JSON — server detects and parses
     const res = await authFetch('/api/catalog', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(items),
+      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text,
     });
     const j = await res.json();
     if (!res.ok) throw new Error(j.error || 'Falha ao importar catálogo.');
     await refreshCatalogBadge();
-    toast(`Catálogo importado: ${j.count} produtos. Extraia novamente para casar por SKU.`);
+    toast(`Catálogo importado: ${j.count} produtos (${file.name}). Extraia novamente para casar por SKU.`);
   } catch (ex) {
     toast('Erro no catálogo: ' + (ex.message || ex));
   }

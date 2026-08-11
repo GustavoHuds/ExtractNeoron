@@ -12,7 +12,7 @@ import { buildWorkbook } from './xlsx.js';
 import { buildTimeline, loadCachedTimeline } from './timeline.js';
 import { setDone } from './store.js';
 import { requireAuth } from './auth.js';
-import { saveCatalog, catalogStatus } from './catalog.js';
+import { saveCatalog, catalogStatus, parseCatalogCsv } from './catalog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -44,6 +44,8 @@ app.use(helmet({
 
 // Cap request bodies. Catalog import can be a few MB of JSON; everything else tiny.
 app.use(express.json({ limit: '8mb' }));
+// Catalog import is uploaded as raw text (CSV or JSON) — parsed at /api/catalog.
+app.use(express.text({ type: ['text/plain', 'text/csv'], limit: '8mb' }));
 
 // Liveness probe for Docker/orchestration — no auth, no data exposure.
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -96,10 +98,19 @@ app.get('/api/catalog', (_req, res) => {
   catch { res.json({ loaded: false, count: 0, source: null }); }
 });
 
+// Accepts the raw uploaded file (CSV or JSON), or a JSON array/{items} body.
 app.post('/api/catalog', (req, res) => {
-  const items = Array.isArray(req.body) ? req.body : req.body?.items;
-  try { res.json({ ok: true, ...saveCatalog(items) }); }
-  catch (e) { res.status(400).json({ error: e.message || 'Catálogo inválido.' }); }
+  try {
+    let items = req.body;
+    if (typeof items === 'string') {
+      const t = items.replace(/^﻿/, '').trim();
+      items = t.startsWith('[') || t.startsWith('{') ? JSON.parse(t) : parseCatalogCsv(t);
+    }
+    if (!Array.isArray(items) && Array.isArray(items?.items)) items = items.items;
+    res.json({ ok: true, ...saveCatalog(items) });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Catálogo inválido.' });
+  }
 });
 
 app.get('/api/download', (_req, res) => {

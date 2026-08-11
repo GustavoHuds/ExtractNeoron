@@ -113,6 +113,83 @@ export function catalogStatus() {
   return { loaded: (CATALOG?.length || 0) > 0, count: CATALOG?.length || 0, source: SOURCE };
 }
 
+/** Parse a price cell in BR ("1.234,56" / "169,00") or US ("169.00") format. */
+function parsePreco(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim().replace(/R\$/gi, '').replace(/\s/g, '');
+  if (!s) return null;
+  if (s.includes(',') && s.includes('.')) s = s.replace(/\./g, '').replace(',', '.'); // 1.234,56
+  else if (s.includes(',')) s = s.replace(',', '.');                                   // 169,00
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Detect the delimiter of a CSV from its header line (, ; or tab). */
+function detectDelim(line) {
+  const counts = { ',': 0, ';': 0, '\t': 0 };
+  let q = false;
+  for (const ch of line) {
+    if (ch === '"') q = !q;
+    else if (!q && ch in counts) counts[ch]++;
+  }
+  const [best, n] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  return n > 0 ? best : ',';
+}
+
+/** RFC4180-ish parser: rows of fields, honoring quotes and the given delimiter. */
+function parseRows(text, delim) {
+  const rows = [];
+  let field = '', row = [], inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += c;
+    } else if (c === '"') inQ = true;
+    else if (c === delim) { row.push(field); field = ''; }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else if (c !== '\r') field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+/**
+ * Parse a catalog CSV into the item shape the app reads. Maps columns by header
+ * name (case-insensitive), tolerating common variants; requires a `nome` column.
+ * @returns {Array<{nome,codigo?,preco?,categoria?,nome_exibicao?,categoria_label?}>}
+ */
+export function parseCatalogCsv(text) {
+  const clean = String(text).replace(/^﻿/, '');
+  const firstLine = clean.slice(0, (clean.search(/\r?\n/) + 1 || clean.length + 1) - 1);
+  const rows = parseRows(clean, detectDelim(firstLine));
+  if (rows.length < 2) throw new Error('CSV vazio ou sem linhas de dados.');
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const col = (...names) => { for (const n of names) { const i = header.indexOf(n); if (i >= 0) return i; } return -1; };
+  const iNome = col('nome', 'name', 'produto', 'descricao');
+  if (iNome < 0) throw new Error('O CSV precisa de uma coluna "nome" (achei: ' + header.join(', ') + ').');
+  const iCod = col('codigo', 'código', 'cod', 'sku', 'ref', 'referencia', 'referência');
+  const iPreco = col('preco', 'preço', 'price', 'valor');
+  const iCat = col('categoria', 'category', 'cat');
+  const iExib = col('nome_exibicao', 'nome_exibição', 'exibicao', 'display');
+  const iCatLbl = col('categoria_label', 'categoria_nome', 'cat_label');
+  const items = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const nome = (row[iNome] || '').trim();
+    if (!nome) continue;
+    const it = { nome };
+    if (iCod >= 0 && row[iCod]?.trim()) it.codigo = row[iCod].trim();
+    if (iCat >= 0 && row[iCat]?.trim()) it.categoria = row[iCat].trim();
+    if (iExib >= 0 && row[iExib]?.trim()) it.nome_exibicao = row[iExib].trim();
+    if (iCatLbl >= 0 && row[iCatLbl]?.trim()) it.categoria_label = row[iCatLbl].trim();
+    if (iPreco >= 0) { const p = parsePreco(row[iPreco]); if (p != null) it.preco = p; }
+    items.push(it);
+  }
+  if (!items.length) throw new Error('Nenhuma linha com "nome" preenchido no CSV.');
+  return items;
+}
+
 /**
  * Validate + persist an imported catalog to data/catalogo.json, then reload it.
  * Accepts the same shape as catalogo-dados.json: an array of items with at least
