@@ -6,8 +6,8 @@
  */
 import { config } from './config.js';
 
-export const PROJECT = 'neoron';
-export const API_KEY = '***REMOVED-LEAKED-KEY***';
+export const PROJECT = config.firebaseProject;
+export const API_KEY = config.apiKey;
 const DB = `projects/${PROJECT}/databases/(default)`;
 const DOCS = `https://firestore.googleapis.com/v1/${DB}/documents`;
 

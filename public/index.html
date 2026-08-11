@@ -37,6 +37,8 @@
           <a href="#" data-dl="csv">CSV</a>
         </div>
       </div>
+      <button id="btn-catalog" title="Importar catálogo (.json) para casar produtos por SKU">Catálogo</button>
+      <input type="file" id="catalog-file" accept="application/json,.json" hidden />
       <div class="usermenu">
         <button id="user-chip" class="user-chip"><span class="avatar" id="user-initial">·</span><span id="user-name">—</span></button>
         <div class="menu-list" id="user-menu" hidden><a href="#" id="btn-logout">Sair</a></div>
@@ -89,6 +91,7 @@
   </main>
 
   <div id="overlay" hidden><div class="spinner"></div><p id="overlay-msg">Extraindo do Neoron…</p></div>
+  <script src="/config.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

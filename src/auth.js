@@ -4,8 +4,12 @@
  */
 import crypto from 'node:crypto';
 
-const PROJECT = 'neoron';
+const PROJECT = process.env.NEORON_PROJECT || 'neoron';
 const ISS = `https://securetoken.google.com/${PROJECT}`;
+// Optional access allow-list (comma-separated emails). Empty = allow any valid
+// Neoron account. Set AUTHORIZED_EMAILS to lock the dashboard to specific users.
+const ALLOW = (process.env.AUTHORIZED_EMAILS || '')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 const CERTS_URL =
   'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
 
@@ -54,6 +58,12 @@ export function requireAuth(req, res, next) {
   const m = /^Bearer (.+)$/.exec(req.headers.authorization || '');
   if (!m) return res.status(401).json({ error: 'Não autenticado.' });
   verifyIdToken(m[1])
-    .then((auth) => { req.auth = auth; next(); })
+    .then((auth) => {
+      if (ALLOW.length && !ALLOW.includes((auth.email || '').toLowerCase())) {
+        return res.status(403).json({ error: 'Acesso não autorizado.' });
+      }
+      req.auth = auth;
+      next();
+    })
     .catch(() => res.status(401).json({ error: 'Sessão inválida ou expirada.' }));
 }

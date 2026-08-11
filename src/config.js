@@ -19,8 +19,17 @@ export const config = {
   url: process.env.NEORON_URL || 'https://app.neoron.io/dashboard',
   email: process.env.NEORON_EMAIL || '',
   password: process.env.NEORON_PASSWORD || '',
+  // Firebase project + web API key for Neoron. The web API key is public by
+  // design, but it is kept out of source (env only) so secret scanners don't
+  // flag the repo and so it stays configurable per environment.
+  firebaseProject: process.env.NEORON_PROJECT || 'neoron',
+  apiKey: process.env.NEORON_API_KEY || '',
+  // Optional access allow-list. Empty = any valid Neoron account may sign in.
+  authorizedEmails: (process.env.AUTHORIZED_EMAILS || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   idleThresholdHours: Number(process.env.IDLE_THRESHOLD_HOURS || 24),
   headless: String(process.env.HEADLESS ?? 'true').toLowerCase() !== 'false',
+  host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT || 3000),
   // Neoron runs on Firebase / Google Cloud Functions; its SPA talks to this host.
   apiHostFragment: 'cloudfunctions.net/api/',

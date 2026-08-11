@@ -8,10 +8,21 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT } from './config.js';
+import { ROOT, DATA_DIR, ensureDirs } from './config.js';
 
-const CATALOG_JSON = process.env.CATALOG_PATH
-  || path.join(ROOT, 'Catálogo - ref', 'data', 'catalogo-dados.json');
+// Where the active catalog lives. Priority:
+//   1. CATALOG_PATH env override
+//   2. data/catalogo.json  (imported via the dashboard "Importar catálogo" button;
+//      git-ignored, persisted per deployment — each user brings their own catalog)
+//   3. legacy local reference file (kept working for existing local setups)
+const IMPORTED_CATALOG = path.join(DATA_DIR, 'catalogo.json');
+const LEGACY_CATALOG = path.join(ROOT, 'Catálogo - ref', 'data', 'catalogo-dados.json');
+
+function catalogPath() {
+  if (process.env.CATALOG_PATH) return process.env.CATALOG_PATH;
+  if (fs.existsSync(IMPORTED_CATALOG)) return IMPORTED_CATALOG;
+  return LEGACY_CATALOG;
+}
 
 // Generic product words + sizes + units + colors + store/greeting words +
 // common conversational Portuguese — none carry a model signal.
@@ -57,25 +68,69 @@ function tokenize(s) {
     .filter((t) => t.length >= 4 && !/^\d/.test(t) && !CODE_RE.test(t) && !STOP.has(t));
 }
 
-let CATALOG = null, IDF = null, DF = null;
+let CATALOG = null, IDF = null, DF = null, SOURCE = null;
 
 // Parts / accessories that a customer doesn't negotiate as the main product.
 const COMPONENT_RE = /(LATERAL|PROTETOR|\bPROT\b|\bCAPA\b|\bSAIA\b|\bGRADE\b|\bTAMPO\b|RODIZIO|\bPES\b)/;
 
-export function loadCatalog() {
-  if (CATALOG) return CATALOG;
-  const raw = JSON.parse(fs.readFileSync(CATALOG_JSON, 'utf8'));
+/** Build the in-memory index from a raw catalog array. */
+function indexCatalog(raw) {
   DF = new Map();
   for (const it of raw) {
     it._tokens = [...new Set(tokenize(it.nome))];
     it._skip = it.categoria === 'ACESSORIOS' || COMPONENT_RE.test(norm(it.nome));
     for (const t of it._tokens) DF.set(t, (DF.get(t) || 0) + 1);
   }
-  const N = raw.length;
+  const N = raw.length || 1;
   IDF = new Map();
   for (const [t, d] of DF) IDF.set(t, Math.log(N / d));
   CATALOG = raw;
   return CATALOG;
+}
+
+export function loadCatalog() {
+  if (CATALOG) return CATALOG;
+  const file = catalogPath();
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!Array.isArray(raw)) throw new Error('catalog is not an array');
+    SOURCE = file;
+    return indexCatalog(raw);
+  } catch {
+    // No catalog imported yet (or unreadable): run with SKU matching disabled.
+    // Category-based product detection still works. Import one via the dashboard.
+    SOURCE = null;
+    return indexCatalog([]);
+  }
+}
+
+/** Drop the in-memory cache so the next match re-reads from disk. */
+export function invalidateCatalog() { CATALOG = null; IDF = null; DF = null; SOURCE = null; }
+
+/** Report whether a catalog is loaded, how many SKUs, and its source path. */
+export function catalogStatus() {
+  loadCatalog();
+  return { loaded: (CATALOG?.length || 0) > 0, count: CATALOG?.length || 0, source: SOURCE };
+}
+
+/**
+ * Validate + persist an imported catalog to data/catalogo.json, then reload it.
+ * Accepts the same shape as catalogo-dados.json: an array of items with at least
+ * a `nome` field (codigo/preco/categoria optional but recommended).
+ * @returns {{ loaded: boolean, count: number, source: string|null }}
+ */
+export function saveCatalog(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('Catálogo inválido: envie um JSON com uma lista de produtos.');
+  }
+  const clean = items.filter((it) => it && typeof it.nome === 'string' && it.nome.trim());
+  if (clean.length === 0) {
+    throw new Error('Catálogo inválido: nenhum item com o campo "nome".');
+  }
+  ensureDirs();
+  fs.writeFileSync(IMPORTED_CATALOG, JSON.stringify(clean));
+  invalidateCatalog();
+  return catalogStatus();
 }
 
 /**

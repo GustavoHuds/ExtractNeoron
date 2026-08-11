@@ -393,7 +393,7 @@ In `src/firestore.js`, change the const declarations (lines 9-10) and the final 
 
 ```js
 export const PROJECT = 'neoron';
-export const API_KEY = '***REMOVED-LEAKED-KEY***';
+export const API_KEY = process.env.NEORON_API_KEY /* redacted: key now injected from env, not source */;
 ```
 
 Update the bottom `export { PROJECT, DB, DOCS };` to `export { DB, DOCS };` (PROJECT is now exported inline). Leave `signIn()` intact for the CLI/`discover.js`.
@@ -652,7 +652,7 @@ git commit -m "feat(server): requireAuth on all APIs, CSP/security headers, sani
 
 ```js
 // Browser-side Firebase auth: login, auto-login via refresh token, authFetch.
-const API_KEY = '***REMOVED-LEAKED-KEY***'; // public Firebase web key
+const API_KEY = process.env.NEORON_API_KEY /* redacted: key now injected from env, not source */; // public Firebase web key
 const LS_KEY = 'neoron_auth';
 let idToken = null;
 

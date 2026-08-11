@@ -22,29 +22,43 @@ para identificar leads esquecidos e ligar para eles.
 Por isso a extração é feita direto no **Firestore REST** com o token de login —
 sem scraping de tela, robusto e rápido.
 
-## Setup
+## Setup (local)
 
 ```bash
 npm install
-npx playwright install chromium   # só é necessário para o discover.js (mapeamento)
+cp .env.example .env       # preencha NEORON_API_KEY (chave web pública do Firebase)
+npm run serve              # abre o dashboard em http://localhost:3000
 ```
 
-O `.env` é **opcional** e só necessário se for usar o `discover.js` (mapeamento da estrutura do Neoron).
-O login do dashboard é feito **no navegador** — não é preciso criar `.env` para usar o painel.
+O login do dashboard é feito **no navegador** (sua conta do Neoron) — o navegador memoriza você para login automático. A **senha nunca vai para o servidor**; ele só valida o token do Firebase.
 
-Se for usar o `discover.js`:
+O `.env` guarda apenas config **não-sensível do servidor** (a `NEORON_API_KEY` é pública por design). `NEORON_EMAIL`/`NEORON_PASSWORD` são usados **somente** pelo `discover.js` (mapeamento local) — não pelo painel. Para rodar o `discover.js`, instale o Chromium: `npx playwright install chromium`.
+
+## Deploy na VPS (Docker Compose)
+
+Voltado para acesso **interno/VPN**: o painel é publicado **só em `127.0.0.1`** da VPS (não fica exposto à internet). Acesse por **túnel SSH** (`ssh -L 3000:127.0.0.1:3000 usuario@vps`) ou pela sua VPN, depois abra `http://localhost:3000`.
+
+Pré-requisitos na VPS: Docker + Docker Compose plugin.
+
 ```bash
-cp .env.example .env   # preencha NEORON_EMAIL e NEORON_PASSWORD
+# 1. Configurar segredos (uma vez). NÃO versionado.
+cp .env.example .env
+nano .env            # defina NEORON_API_KEY (e, se quiser, AUTHORIZED_EMAILS)
+
+# 2. Subir
+docker compose up -d --build
+
+# 3. Atualizações futuras (seu fluxo "pull + deploy")
+git pull && docker compose up -d --build
 ```
+
+Estado (leads marcados como "Feito", histórico e o catálogo importado) persiste no volume `neoron-data` entre reinícios/rebuilds. Logs: `docker compose logs -f`. Health: `http://127.0.0.1:3000/health`.
+
+### Catálogo (importe o seu)
+
+O catálogo de produtos **não é versionado** — cada deployment carrega o seu. No painel, clique em **Catálogo** e selecione um `.json` (mesmo formato do `catalogo-dados.json`: lista de itens com `nome`, `codigo`, `preco`, `categoria`). Ele é salvo em `data/catalogo.json` (volume) e usado para casar produtos por SKU. Sem catálogo, o app continua funcionando com detecção por **categoria**.
 
 ## Uso
-
-```bash
-# Inicie o painel (duplo-clique no Iniciar-ExtractNeoron.bat, ou:)
-npm run serve     # abre o dashboard em http://localhost:3000
-```
-
-No navegador, entre com **sua conta do Neoron** (e-mail/senha). O navegador memoriza você (login automático nas próximas vezes). O `.env` **não** é mais usado para login — apenas o `discover.js` o usa.
 
 ### Página **Leads** (`/`)
 - Botão **Extrair** re-executa a extração; **auto-atualização a cada 15 min**.
@@ -67,7 +81,7 @@ Monitoramento corporativo com dados reais:
 |---|---|
 | `src/firestore.js` | Cliente Firebase Auth + Firestore REST (sign-in, runQuery, listDocuments, decode). |
 | `src/extractor.js` | Núcleo: varre `conversations_metadata`, filtra pela tag, normaliza, escreve CSV/JSON. |
-| `src/catalog.js` | Casa a conversa com o **catálogo real** (`Catálogo - ref/data/catalogo-dados.json`) via TF-IDF: quando um modelo/marca é citado (SMILE, GRECIA, ORTOBOM, MIDEA…), identifica o **SKU + preço**. Exige token âncora + 2 tokens + preço > 0 para confirmar. |
+| `src/catalog.js` | Casa a conversa com o **catálogo importado** (`data/catalogo.json`, carregado pelo botão **Catálogo**) via TF-IDF: quando um modelo/marca é citado (SMILE, GRECIA, ORTOBOM, MIDEA…), identifica o **SKU + preço**. Exige token âncora + 2 tokens + preço > 0 para confirmar. Sem catálogo, cai no fallback por categoria. |
 | `src/products.js` | Fallback: quando nenhum modelo é citado, detecta a **categoria** (Colchão, Cama casal, Guarda-roupa…) por palavra-chave. Edite `PRODUCT_RULES`. |
 | `src/metrics.js` | Nome real do atendente (do texto da conversa) + velocidade de resposta correta (pergunta→resposta). |
 | `src/timeline.js` | Agrega métricas históricas para a página Timeline. |
@@ -81,8 +95,13 @@ Monitoramento corporativo com dados reais:
 
 ## Segurança
 
-Credenciais só no `.env` (git-ignored). `data/` e `storageState.json` também são
-ignorados. Tudo roda localmente; nenhum dado sai da máquina.
+Ver **[SECURITY.md](SECURITY.md)** para a postura completa. Resumo:
+
+- **Nenhum segredo no código.** A chave web do Firebase vem do `.env` (injetada no browser via `/config.js`); `.env`, `data/` e `storageState.json` são git-ignored.
+- **Auth obrigatória** em todas as rotas `/api/*` (Firebase ID token, RS256 verificado localmente). Allow-list opcional de e-mails via `AUTHORIZED_EMAILS`.
+- **Headers de segurança** via `helmet` (CSP estrita: sem JS externo; só endpoints do Firebase) e **rate limiting** (`express-rate-limit`).
+- **Exposição mínima**: no Docker o painel só escuta em `127.0.0.1` (acesso via VPN/túnel SSH).
+- ⚠️ **Rotacione** a senha da conta Neoron usada localmente pelo `discover.js` se ela já esteve em um `.env` compartilhado.
 
 ## Observações / próximos passos possíveis
 

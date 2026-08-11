@@ -8,8 +8,11 @@ export function loadDone() {
   catch { return {}; }
 }
 
+const UNSAFE_KEY = new Set(['__proto__', 'constructor', 'prototype']);
+
 /** Mark a conversation done/undone. Returns the full done map. */
 export function setDone(id, done, by = '') {
+  if (UNSAFE_KEY.has(id)) return loadDone(); // ignore prototype-polluting ids
   ensureDirs();
   const map = loadDone();
   if (done) map[id] = { done: true, at: new Date().toISOString(), by };

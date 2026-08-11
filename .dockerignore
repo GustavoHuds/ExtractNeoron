@@ -1,0 +1,32 @@
+# Keep the build context (and image) small and secret-free.
+node_modules
+npm-debug.log*
+
+# secrets / runtime state — never bake into the image
+.env
+.env.*
+data
+storageState.json
+
+# not needed at runtime
+.git
+.gitignore
+.gitattributes
+docs
+test
+.claude
+.vscode
+*.bat
+
+# each deployment imports its own catalog via the dashboard; the reference
+# folder (200+ MB of PDFs/images) must never go into the image
+Catálogo - ref
+Catálogo*
+Cat*
+
+# docker / meta files
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md
+SECURITY.md

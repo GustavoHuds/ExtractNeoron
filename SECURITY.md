@@ -1,6 +1,7 @@
 # Postura de Segurança — ExtractNeoron
 
 Documento gerado após auditoria executada em 2026-08-07.
+Revisado em 2026-08-11 (hardening para deploy em VPS + remoção de chaves do código).
 
 ---
 
@@ -14,7 +15,13 @@ O servidor Express verifica cada requisição usando o ID token recebido como Be
 
 ## Controle de acesso
 
-Todas as rotas `/api/*` exigem um Firebase ID token válido, verificado pelo middleware `requireAuth` em `src/server.js`. Sem token válido, a API retorna 401. Antes desta implementação, o dashboard ficava aberto na LAN sem qualquer autenticação.
+Todas as rotas `/api/*` exigem um Firebase ID token válido, verificado pelo middleware `requireAuth` em `src/auth.js`. Sem token válido, a API retorna 401.
+
+**Allow-list opcional:** definindo `AUTHORIZED_EMAILS` (lista separada por vírgula) no `.env`, apenas esses e-mails são aceitos — qualquer outro token válido recebe **403**. Vazia (padrão), qualquer conta Neoron válida entra (adequado apenas atrás de VPN/rede interna).
+
+**Rate limiting:** `express-rate-limit` limita a superfície `/api/*` (600 req / 15 min por IP), protegendo as rotas caras (`/api/extract`, `/api/timeline/refresh`) e a validação de token contra abuso.
+
+**Tamanho de payload:** `express.json({ limit: '8mb' })` — teto para o corpo das requisições (o import de catálogo é o maior caso legítimo).
 
 ---
 
@@ -34,17 +41,19 @@ Neutralizada em `src/sanitize.js`: células cujo conteúdo começa com `=`, `+`,
 
 ## Segredos
 
-A **Firebase web API key** é pública por design (a segurança do Firebase é garantida por tokens + Firebase Security Rules, não pelo sigilo da chave).
+**Nenhuma chave fica no código-fonte.** A **Firebase web API key** é pública por design (a segurança do Firebase vem de tokens + Firebase Security Rules, não do sigilo da chave), mas mesmo assim foi **removida do código** e passou a ser lida de `NEORON_API_KEY` (env). O servidor a entrega ao browser em tempo de execução via `GET /config.js` — assim nenhum literal `AIza…` aparece em arquivos versionados e scanners de segredo (GitHub/Google) não sinalizam mais o repositório.
 
 Os arquivos sensíveis são **git-ignored** e **não estão versionados**:
 
 | Arquivo / padrão | Rastreado pelo git? |
 |---|---|
-| `.env` | **NÃO** (verificado: `git ls-files` não retornou `.env`) |
-| `storageState.json` | **NÃO** (verificado: ausente em `git ls-files`) |
-| `data/` (toda a pasta) | **NÃO** (verificado: ausente em `git ls-files`) |
+| `.env` | **NÃO** |
+| `storageState.json` | **NÃO** |
+| `data/` (estado + catálogo importado) | **NÃO** |
 
-Varredura do histórico git (`git log -p -S "NEORON_PASSWORD=" -- .`): apenas valores placeholder encontrados (`your-password-here`, `...`). **Nenhuma senha real no histórico.**
+Varredura do histórico (`git log --all -- .env`): o `.env` real **nunca** foi commitado; apenas `.env.example` com placeholders.
+
+**Ação recomendada:** a senha da conta Neoron usada pelo `discover.js` (ferramenta local de mapeamento) deve ser **rotacionada** se já esteve em um `.env` compartilhado ou copiado para outra máquina — ela é o único segredo real do fluxo e não é necessária no servidor.
 
 ---
 
@@ -82,13 +91,33 @@ As respostas de erro da API são genéricas (ex.: `{"error":"Unauthorized"}`); d
 
 ## Cabeçalhos de segurança
 
-Os seguintes cabeçalhos HTTP são enviados pelo servidor Express em todas as respostas:
+Aplicados via **`helmet`** (padrão de mercado) com CSP ajustada às necessidades reais do app:
 
 | Cabeçalho | Valor |
 |---|---|
-| `Content-Security-Policy` | `script-src 'self'` (sem JS externo) |
+| `Content-Security-Policy` | `default-src 'self'`; `connect-src` só self + `identitytoolkit`/`securetoken` do Google; `script-src 'self'` (sem JS externo); `base-uri 'none'`; `frame-ancestors 'none'`; `object-src 'none'` |
 | `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `SAMEORIGIN` (reforçado por `frame-ancestors 'none'` na CSP) |
 | `Referrer-Policy` | `no-referrer` |
+| `X-Powered-By` | removido (`app.disable('x-powered-by')`) |
+
+`HSTS` fica desligado no app (só faz sentido sobre HTTPS) — habilite-o no terminador TLS caso um proxy/HTTPS seja adicionado.
+
+## Exposição de rede / deployment
+
+No Docker Compose o container publica a porta **apenas em `127.0.0.1`** da VPS (`ports: "127.0.0.1:3000:3000"`), então o painel **não fica acessível pela internet pública** — o acesso é por VPN ou túnel SSH. O processo roda como usuário **não-root** (`USER node`) e a imagem **não inclui Playwright/Chromium** (o servidor nunca abre navegador), reduzindo tamanho e superfície de ataque.
+
+## Ataques considerados (pentest)
+
+| Vetor | Situação |
+|---|---|
+| **CSRF** | Não aplicável — auth por Bearer header (não cookie); requisição cross-site não injeta o header. |
+| **XSS** | CSP estrita + `esc()` em todo conteúdo dinâmico. |
+| **SSRF** | Sem URLs controladas pelo usuário no servidor (só certs do Google + Firestore com o token do próprio usuário). |
+| **Path traversal** | Downloads servem caminhos fixos; catálogo em caminho fixo/validado. |
+| **Prototype pollution** | Import de catálogo e `setDone` rejeitam chaves `__proto__`/`constructor`/`prototype`. |
+| **Alg confusion / token forjado** | `verifyIdToken` exige RS256, valida `iss`/`aud`/`exp`/assinatura contra os certs do Google (coberto por testes). |
+| **DoS** | Rate limit + limite de body + guardas de concorrência nas rotas caras. |
 
 ---
 

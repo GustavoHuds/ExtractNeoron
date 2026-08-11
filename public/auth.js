@@ -1,5 +1,7 @@
 // Browser-side Firebase auth: login, auto-login via refresh token, authFetch.
-const API_KEY = '***REMOVED-LEAKED-KEY***'; // public Firebase web key
+// The public Firebase web key is injected at runtime by /config.js (served from
+// the server's env) — it is never hard-coded in source.
+const API_KEY = (typeof window !== 'undefined' && window.NEORON_CONFIG && window.NEORON_CONFIG.apiKey) || '';
 const LS_KEY = 'neoron_auth';
 let idToken = null;
 

@@ -198,6 +198,38 @@ rowsEl.addEventListener('click', (e) => {
 $('#btn-export').addEventListener('click', (e) => { e.stopPropagation(); $('#export-menu').hidden = !$('#export-menu').hidden; });
 document.addEventListener('click', () => { $('#export-menu').hidden = true; });
 
+// ---- catalog import ----
+async function refreshCatalogBadge() {
+  try {
+    const s = await (await authFetch('/api/catalog')).json();
+    const btn = $('#btn-catalog');
+    if (btn) {
+      btn.textContent = s.loaded ? `Catálogo · ${s.count}` : 'Catálogo';
+      btn.title = s.loaded
+        ? `${s.count} produtos carregados. Clique para substituir o catálogo (.json).`
+        : 'Nenhum catálogo. Importe um .json para casar produtos por SKU.';
+    }
+  } catch {}
+}
+$('#btn-catalog').addEventListener('click', () => $('#catalog-file').click());
+$('#catalog-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const items = JSON.parse(await file.text());
+    const res = await authFetch('/api/catalog', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(items),
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || 'Falha ao importar catálogo.');
+    await refreshCatalogBadge();
+    toast(`Catálogo importado: ${j.count} produtos. Extraia novamente para casar por SKU.`);
+  } catch (ex) {
+    toast('Erro no catálogo: ' + (ex.message || ex));
+  }
+});
+
 // auto-refresh every 15 min + countdown
 setInterval(() => {
   const left = nextAuto - Date.now();
@@ -219,8 +251,9 @@ function showLogin(show) { $('#login').hidden = !show; }
 async function afterAuth() {
   showLogin(false);
   paintUser();
-  await loadCached();   // instant: last saved snapshot, if any
-  extract(false);       // auto-analyse (fetches + filters "negociando" from Neoron)
+  refreshCatalogBadge(); // reflect whether a catalog is loaded
+  await loadCached();    // instant: last saved snapshot, if any
+  extract(false);        // auto-analyse (fetches + filters "negociando" from Neoron)
 }
 
 async function boot() {
