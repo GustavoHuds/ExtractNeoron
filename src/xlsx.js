@@ -33,6 +33,9 @@ export async function buildWorkbook(result) {
     { header: '1ª resposta (min)', key: 'primeiraRespostaMin', width: 16 },
     { header: 'Resp. mediana (min)', key: 'respostaMedianaMin', width: 17 },
     { header: 'Feito', key: 'feito', width: 8 },
+    { header: 'Motivo (desfecho)', key: 'feitoReasonLabel', width: 18 },
+    { header: 'Justificativa', key: 'feitoNota', width: 34 },
+    { header: 'Concluído por', key: 'feitoPor', width: 22 },
     { header: 'Última interação', key: 'ultimaInteracao', width: 20 },
     { header: 'Contexto', key: 'contexto', width: 46 },
     { header: 'Tags', key: 'tags', width: 26 },
@@ -57,6 +60,8 @@ export async function buildWorkbook(result) {
       motivos: neutralizeCell((r.motivos || []).join(', ')),
       aguardando: r.aguardando ? 'Sim' : '',
       feito: r.feito ? 'Sim' : '',
+      feitoNota: neutralizeCell(r.feitoNota),
+      feitoPor: neutralizeCell(r.feitoPor),
       tags: neutralizeCell((r.tags || []).join(', ')),
       produtoPreco: r.produtoPreco || null,
       ultimaInteracao: r.ultimaInteracao ? new Date(r.ultimaInteracao) : null,
@@ -68,7 +73,7 @@ export async function buildWorkbook(result) {
     if (r.feito) row.font = { color: { argb: 'FF9AA3B2' }, strike: true };
     row.getCell('contexto').alignment = { wrapText: false };
   }
-  ws.autoFilter = { from: 'A1', to: 'P1' };
+  ws.autoFilter = { from: 'A1', to: 'T1' };
 
   // Resumo sheet
   const rs = wb.addWorksheet('Resumo');

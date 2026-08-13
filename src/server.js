@@ -85,20 +85,23 @@ app.post('/api/extract', async (req, res) => {
 });
 
 // Mark / unmark a lead as "Feito" (persisted, shared across the network).
+// When concluding, `reason` (preset outcome) and `note` (justificativa) are
+// recorded; `by` comes from the verified auth token, not the client.
 app.post('/api/done', (req, res) => {
-  const { id, done } = req.body || {};
+  const { id, done, reason, note } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obrigatório' });
-  const map = setDone(id, !!done, req.body.by || '');
-  res.json({ ok: true, feito: !!map[id], at: map[id]?.at || null });
+  const map = setDone(id, !!done, req.auth.email || '', reason || '', note || '');
+  const entry = map[id] || {};
+  res.json({ ok: true, feito: !!map[id], at: entry.at || null, reason: entry.reason || '', note: entry.note || '' });
 });
 
 // Register (or reset) a "Não atendeu" call attempt for a lead.
 app.post('/api/noanswer', (req, res) => {
-  const { id, reset } = req.body || {};
+  const { id, reset, note } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obrigatório' });
-  const map = reset ? resetNoAnswer(id) : bumpNoAnswer(id, req.body.by || '');
+  const map = reset ? resetNoAnswer(id) : bumpNoAnswer(id, req.auth.email || '', note || '');
   const entry = map[id] || { count: 0, at: null };
-  res.json({ ok: true, count: entry.count || 0, at: entry.at || null });
+  res.json({ ok: true, count: entry.count || 0, at: entry.at || null, note: entry.note || '' });
 });
 
 // Full chat transcript for one conversation, fetched on demand (never cached).

@@ -23,6 +23,17 @@ import { neutralizeCell } from './sanitize.js';
 
 const TAG_NAME = (process.env.NEGOCIANDO_TAG_NAME || 'negociando').toLowerCase();
 
+// Preset outcomes recorded when concluding a lead in the "Finalizar" popup.
+// Slugs are what get persisted; labels are for humans (UI + exports).
+export const REASON_LABELS = {
+  vendido: 'Vendido',
+  sem_retorno: 'Sem retorno',
+  sem_interesse: 'Sem interesse',
+  concorrente: 'Comprou concorrente',
+  outro: 'Outro',
+};
+const reasonLabel = (slug) => REASON_LABELS[slug] || (slug || '');
+
 /** Derive commercial situation from the contact's tags. */
 function situacaoOf(tagNames) {
   const s = tagNames.map((t) => t.toLowerCase());
@@ -286,6 +297,7 @@ export async function extractNegociando(auth) {
         paraLigar: false,      // client waiting for a human reply for 24h+ (call queue)
         naoAtendeuCount: na?.count || 0,        // how many times the call went unanswered
         naoAtendeuAt: na?.at || null,           // last unanswered-call timestamp (queue re-sink)
+        naoAtendeuNota: na?.note || '',         // note from the latest unanswered-call attempt
         noAnswerBucket: (na?.count || 0) >= 2,  // 2+ attempts -> "Não atendeu" filter
         primeiraRespostaMin: null,
         respostaMedianaMin: null,
@@ -295,6 +307,10 @@ export async function extractNegociando(auth) {
         conversationId: conv.conversation_id || conv._id,
         feito: !!feito,
         feitoAt: feito ? feito.at : null,
+        feitoReason: feito ? (feito.reason || '') : '',   // preset outcome slug (vendido, sem_retorno, …)
+        feitoReasonLabel: feito ? reasonLabel(feito.reason) : '', // human label for exports
+        feitoNota: feito ? (feito.note || '') : '',        // free-text justificativa
+        feitoPor: feito ? (feito.by || '') : '',           // who concluded it (auth email)
         botId: bot.id,          // needed to fetch the transcript on demand
         chatUrl: `https://direct.neoron.io/${bot.id}/calls`,
       };
@@ -409,6 +425,7 @@ const CSV_COLS = [
   ['aguardando', 'Cliente aguardando'], ['aguardandoMin', 'Aguardando (min)'],
   ['primeiraRespostaMin', '1ª resposta (min)'], ['respostaMedianaMin', 'Resp. mediana (min)'],
   ['feito', 'Feito'], ['feitoAt', 'Feito em'],
+  ['feitoReasonLabel', 'Motivo (desfecho)'], ['feitoNota', 'Justificativa'], ['feitoPor', 'Concluído por'],
   ['statusSistema', 'Status'], ['tags', 'Tags'],
   ['ultimaInteracao', 'Última interação'],
   ['naoLidas', 'Não lidas'], ['ultimoRemetente', 'Último remetente'],

@@ -10,12 +10,14 @@ export function loadDone() {
 
 const UNSAFE_KEY = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Mark a conversation done/undone. Returns the full done map. */
-export function setDone(id, done, by = '') {
+/** Mark a conversation done/undone. When concluding, records the outcome
+ * `reason` (preset disposition) and free-text `note` (justificativa).
+ * Returns the full done map. */
+export function setDone(id, done, by = '', reason = '', note = '') {
   if (UNSAFE_KEY.has(id)) return loadDone(); // ignore prototype-polluting ids
   ensureDirs();
   const map = loadDone();
-  if (done) map[id] = { done: true, at: new Date().toISOString(), by };
+  if (done) map[id] = { done: true, at: new Date().toISOString(), by, reason, note };
   else delete map[id];
   fs.writeFileSync(DONE_FILE, JSON.stringify(map, null, 2));
   return map;
@@ -33,12 +35,13 @@ function writeNoAnswer(map) {
   return map;
 }
 
-/** Register one more "não atendeu" attempt. Returns the full map. */
-export function bumpNoAnswer(id, by = '') {
+/** Register one more "não atendeu" attempt, keeping an optional free-text
+ * `note` from the latest attempt. Returns the full map. */
+export function bumpNoAnswer(id, by = '', note = '') {
   if (UNSAFE_KEY.has(id)) return loadNoAnswer();
   const map = loadNoAnswer();
   const count = (map[id]?.count || 0) + 1;
-  map[id] = { count, at: new Date().toISOString(), by };
+  map[id] = { count, at: new Date().toISOString(), by, note };
   return writeNoAnswer(map);
 }
 

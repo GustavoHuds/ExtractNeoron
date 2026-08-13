@@ -31,13 +31,13 @@
       <span id="auto" class="auto" title="Atualização automática">—</span>
       <button id="btn-extract" class="primary">Extrair</button>
       <div class="menu">
-        <button id="btn-export">Exportar</button>
+        <button id="btn-more">Mais ▾</button>
         <div class="menu-list" id="export-menu" hidden>
-          <a href="#" data-dl="xlsx">Excel (.xlsx)</a>
-          <a href="#" data-dl="csv">CSV</a>
+          <a href="#" data-dl="xlsx">Exportar Excel (.xlsx)</a>
+          <a href="#" data-dl="csv">Exportar CSV</a>
+          <a href="#" id="btn-catalog" class="menu-sep" title="Importar catálogo (.csv ou .json) para casar produtos por SKU">Catálogo</a>
         </div>
       </div>
-      <button id="btn-catalog" title="Importar catálogo (.csv ou .json) para casar produtos por SKU">Catálogo</button>
       <input type="file" id="catalog-file" accept=".csv,.json,.txt,text/csv,application/json" hidden />
       <div class="usermenu">
         <button id="user-chip" class="user-chip"><span class="avatar" id="user-initial">·</span><span id="user-name">—</span></button>
@@ -107,6 +107,30 @@
         </div>
       </header>
       <div id="chat-body" class="chat-body"></div>
+    </div>
+  </div>
+
+  <div id="finalize-modal" hidden>
+    <div class="fin-card">
+      <header class="fin-head">
+        <div class="fin-who">
+          <strong id="fin-title">Finalizar lead</strong>
+          <span id="fin-sub" class="sub-info"></span>
+        </div>
+        <button id="fin-close" class="icon-btn" title="Fechar (ESC)">✕</button>
+      </header>
+      <div class="fin-body">
+        <div id="fin-current" class="fin-current" hidden></div>
+        <div id="fin-options" class="fin-options"></div>
+        <label class="fin-note-wrap">
+          <span class="fin-note-label">Observação <span id="fin-note-hint" class="fin-hint">(opcional)</span></span>
+          <textarea id="fin-note" rows="3" placeholder="Detalhe o que aconteceu…"></textarea>
+        </label>
+      </div>
+      <footer class="fin-foot">
+        <button id="fin-cancel" class="btn-ghost">Cancelar</button>
+        <button id="fin-confirm" class="primary" disabled>Concluir lead</button>
+      </footer>
     </div>
   </div>
 

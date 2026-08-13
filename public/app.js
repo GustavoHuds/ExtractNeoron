@@ -23,6 +23,9 @@ function ago(ms) {
   return `há ${Math.round(h / 24)} d`;
 }
 const TEMP_LABEL = { quente: 'Quente', morno: 'Morno', frio: 'Frio' };
+// Preset outcomes for the "Finalizar" popup (mirrors REASON_LABELS in extractor.js).
+const REASON_LABEL = { vendido: 'Vendido', sem_retorno: 'Sem retorno', sem_interesse: 'Sem interesse', concorrente: 'Comprou concorrente', outro: 'Outro' };
+const reasonLabelJS = (slug) => REASON_LABEL[slug] || (slug || '');
 
 // Effective wait for the default queue order. A lead that went unanswered ONCE
 // re-sinks (clock restarts at naoAtendeuAt) and climbs back up over time.
@@ -85,10 +88,11 @@ function render() {
     const motivoLine = motivos.length ? `<div class="motivo t-${r.temperatura}" title="Sinais detectados na conversa">${esc(motivos.slice(0, 3).join(' · '))}</div>` : '';
     const waText = r.noAnswerBucket ? '?text=' + encodeURIComponent(noAnswerMsg(r.nome)) : '';
     const naTag = r.naoAtendeuCount ? `<span class="badge-na" title="Ligações sem resposta">Não atendeu · ${r.naoAtendeuCount}</span>` : '';
+    const doneChip = r.feito ? `<span class="badge-done"${r.feitoNota ? ` title="${esc(r.feitoNota)}"` : ''}>✓ ${esc(reasonLabelJS(r.feitoReason) || 'Concluído')}</span>` : '';
     return `<tr class="temp-${r.temperatura}${r.feito ? ' done' : ''}">
       <td class="nome">
         <div class="nm-line">${temp}<span class="nm">${esc(r.nome)}</span></div>
-        <div class="badges">${sit}${wait}${naTag}</div>
+        <div class="badges">${sit}${wait}${naTag}${doneChip}</div>
         ${motivoLine}
         ${tags ? `<div class="tags">${tags}</div>` : ''}
       </td>
@@ -120,18 +124,15 @@ function noAnswerMsg(nome) {
   return `${fn ? 'Olá ' + fn : 'Olá'}, tudo bem? Aqui é da Belmont. Tentei falar com você por telefone sobre o seu atendimento e não consegui. Fico à disposição por aqui quando puder!`;
 }
 
-// Per-lead action buttons. Bucket leads (2+ unanswered calls) get the WhatsApp workflow.
+// Per-lead actions: view the conversation + one "Finalizar" button that opens the
+// outcome popup (conclude with a reason, register "não atendeu", reopen, etc).
 function actionsHtml(r) {
   const id = esc(r.conversationId);
   const eye = `<button class="icon-btn eye-btn" data-id="${id}" data-bot="${esc(r.botId)}" title="Ver conversa">${EYE_ICON}</button>`;
-  const done = `<button class="done-btn ${r.feito ? 'is-done' : ''}" data-id="${id}">${r.feito ? 'Concluído' : 'Concluir'}</button>`;
-  if (r.noAnswerBucket) {
-    const copy = `<button class="mini-btn copy-msg" data-id="${id}" title="Copiar mensagem pronta">Copiar mensagem</button>`;
-    const back = `<button class="mini-btn na-reset" data-id="${id}" title="Voltar para a fila de ligação">Voltar à fila</button>`;
-    return `<div class="act-row">${eye}${copy}${back}${done}</div>`;
-  }
-  const na = `<button class="mini-btn na-btn" data-id="${id}" title="Ligou e não atenderam">Não atendeu</button>`;
-  return `<div class="act-row">${eye}${na}${done}</div>`;
+  const fin = r.feito
+    ? `<button class="fin-btn is-done" data-id="${id}" title="Concluído — clique para ver, alterar ou reabrir">✓ Concluído</button>`
+    : `<button class="fin-btn" data-id="${id}">Finalizar</button>`;
+  return `<div class="act-row">${eye}${fin}</div>`;
 }
 
 function fmtDur(min) {
@@ -174,34 +175,94 @@ async function loadCached() {
   try { DATA = await (await authFetch('/api/data')).json(); paintStats(); render(); } catch {}
 }
 
-async function toggleDone(id, btn) {
-  const row = DATA.rows.find((r) => r.conversationId === id);
-  const done = !(row && row.feito);
-  btn.disabled = true;
-  try {
-    const res = await authFetch('/api/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, done }) });
-    const j = await res.json();
-    if (!res.ok) throw new Error(j.error);
-    if (row) { row.feito = j.feito; row.feitoAt = j.at; }
-    render();
-  } catch (e) { toast('Erro: ' + e.message); }
-  finally { btn.disabled = false; }
+async function postJSON(url, body) {
+  const res = await authFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await res.json();
+  if (!res.ok) throw new Error(j.error || 'Falha');
+  return j;
 }
 
-// Register (or reset) a "Não atendeu" call attempt and re-rank live.
-async function noAnswer(id, reset, btn) {
-  btn.disabled = true;
+// ---- "Finalizar" outcome popup ----
+let finId = null, finChoice = null, finKind = null;
+
+function finOptBtn(choice, kind, label, dot) {
+  return `<button type="button" class="fin-opt" data-choice="${choice}" data-kind="${kind}"><span class="fin-dot d-${dot}"></span><span class="fin-opt-label">${label}</span></button>`;
+}
+function finOptionsHtml(r) {
+  const conclude = [
+    ['vendido', 'Vendido', 'sold'],
+    ['sem_retorno', 'Sem retorno', 'cold'],
+    ['sem_interesse', 'Sem interesse', 'warm'],
+    ['concorrente', 'Comprou concorrente', 'hot'],
+    ['outro', 'Outro', 'muted'],
+  ].map(([c, l, d]) => finOptBtn(c, 'done', l, d)).join('');
+  let call = finOptBtn('na', 'na', 'Não atendeu a ligação', 'accent');
+  if (r.noAnswerBucket) call += finOptBtn('reset', 'reset', 'Voltar à fila de ligação', 'muted');
+  const reopen = r.feito ? finOptBtn('reopen', 'reopen', 'Reabrir lead', 'muted') : '';
+  return `<div class="fin-group"><span class="fin-group-label">Concluir o lead</span>${conclude}</div>
+    <div class="fin-group"><span class="fin-group-label">Ligação</span>${call}</div>
+    ${reopen ? `<div class="fin-group">${reopen}</div>` : ''}`;
+}
+
+function openFinalize(id) {
+  const r = DATA.rows.find((x) => x.conversationId === id);
+  if (!r) return;
+  finId = id; finChoice = null; finKind = null;
+  $('#fin-title').textContent = `Finalizar — ${r.nome}`;
+  $('#fin-sub').textContent = r.contato || '';
+  const cur = $('#fin-current');
+  if (r.feito) {
+    cur.hidden = false;
+    cur.innerHTML = `Concluído como <strong>${esc(reasonLabelJS(r.feitoReason) || '—')}</strong>${r.feitoPor ? ` · ${esc(r.feitoPor)}` : ''}${r.feitoNota ? `<div class="fin-current-note">“${esc(r.feitoNota)}”</div>` : ''}`;
+  } else { cur.hidden = true; cur.innerHTML = ''; }
+  $('#fin-options').innerHTML = finOptionsHtml(r);
+  $('#fin-note').value = r.feito ? (r.feitoNota || '') : '';
+  updateFinConfirm();
+  $('#finalize-modal').hidden = false;
+}
+function closeFinalize() { $('#finalize-modal').hidden = true; finId = null; finChoice = null; finKind = null; }
+
+function updateFinConfirm() {
+  const btn = $('#fin-confirm'), hint = $('#fin-note-hint');
+  const note = $('#fin-note').value.trim();
+  let label = 'Concluir lead', ok = false, needNote = false;
+  if (finKind === 'done') { needNote = finChoice === 'outro'; ok = !needNote || !!note; }
+  else if (finKind === 'na') { label = 'Registrar não atendeu'; ok = true; }
+  else if (finKind === 'reset') { label = 'Voltar à fila'; ok = true; }
+  else if (finKind === 'reopen') { label = 'Reabrir lead'; ok = true; }
+  btn.textContent = label;
+  btn.disabled = !ok;
+  hint.textContent = needNote ? '(obrigatório)' : '(opcional)';
+}
+
+async function finalizeSubmit() {
+  if (!finId || !finKind) return;
+  const id = finId, kind = finKind, choice = finChoice, note = $('#fin-note').value.trim();
+  const row = DATA.rows.find((r) => r.conversationId === id);
+  $('#fin-confirm').disabled = true;
   try {
-    const res = await authFetch('/api/noanswer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, reset }) });
-    const j = await res.json();
-    if (!res.ok) throw new Error(j.error);
-    const row = DATA.rows.find((r) => r.conversationId === id);
-    if (row) { row.naoAtendeuCount = j.count; row.naoAtendeuAt = j.at; row.noAnswerBucket = j.count >= 2; }
-    DATA.naoAtendeu = DATA.rows.filter((r) => r.noAnswerBucket).length;
-    toast(reset ? 'Voltou para a fila.' : j.count >= 2 ? 'Movido para "Não atendeu".' : 'Voltou pro fim da fila.');
+    if (kind === 'done') {
+      const j = await postJSON('/api/done', { id, done: true, reason: choice, note });
+      if (row) { row.feito = true; row.feitoAt = j.at; row.feitoReason = j.reason || choice; row.feitoNota = j.note || note; row.feitoPor = currentUser() || ''; }
+      toast(`Lead concluído: ${reasonLabelJS(choice)}.`);
+    } else if (kind === 'reopen') {
+      await postJSON('/api/done', { id, done: false });
+      if (row) { row.feito = false; row.feitoAt = null; row.feitoReason = ''; row.feitoNota = ''; row.feitoPor = ''; }
+      toast('Lead reaberto.');
+    } else if (kind === 'na') {
+      const j = await postJSON('/api/noanswer', { id, reset: false, note });
+      if (row) { row.naoAtendeuCount = j.count; row.naoAtendeuAt = j.at; row.naoAtendeuNota = j.note || note; row.noAnswerBucket = j.count >= 2; }
+      DATA.naoAtendeu = DATA.rows.filter((r) => r.noAnswerBucket).length;
+      toast(j.count >= 2 ? 'Movido para "Não atendeu".' : 'Registrado. Voltou pro fim da fila.');
+    } else if (kind === 'reset') {
+      const j = await postJSON('/api/noanswer', { id, reset: true });
+      if (row) { row.naoAtendeuCount = j.count || 0; row.naoAtendeuAt = j.at; row.noAnswerBucket = false; }
+      DATA.naoAtendeu = DATA.rows.filter((r) => r.noAnswerBucket).length;
+      toast('Voltou para a fila.');
+    }
+    closeFinalize();
     paintStats(); render();
-  } catch (e) { toast('Erro: ' + e.message); }
-  finally { btn.disabled = false; }
+  } catch (e) { toast('Erro: ' + (e.message || e)); updateFinConfirm(); }
 }
 
 function toast(msg) {
@@ -255,15 +316,23 @@ rowsEl.addEventListener('click', (e) => {
   if (copy) { copyText(copy.dataset.copy); return; }
   const eye = e.target.closest('.eye-btn');
   if (eye) { const r = DATA.rows.find((x) => x.conversationId === eye.dataset.id); openChat(eye.dataset.id, eye.dataset.bot, r || {}); return; }
-  const na = e.target.closest('.na-btn');
-  if (na) { noAnswer(na.dataset.id, false, na); return; }
-  const naReset = e.target.closest('.na-reset');
-  if (naReset) { noAnswer(naReset.dataset.id, true, naReset); return; }
-  const cmsg = e.target.closest('.copy-msg');
-  if (cmsg) { const r = DATA.rows.find((x) => x.conversationId === cmsg.dataset.id); if (r) copyText(noAnswerMsg(r.nome), 'Mensagem copiada.'); return; }
-  const done = e.target.closest('.done-btn');
-  if (done) toggleDone(done.dataset.id, done);
+  const fin = e.target.closest('.fin-btn');
+  if (fin) { openFinalize(fin.dataset.id); }
 });
+
+// Finalize popup interactions
+$('#fin-options').addEventListener('click', (e) => {
+  const b = e.target.closest('.fin-opt'); if (!b) return;
+  finChoice = b.dataset.choice; finKind = b.dataset.kind;
+  [...$('#fin-options').querySelectorAll('.fin-opt')].forEach((x) => x.classList.toggle('selected', x === b));
+  updateFinConfirm();
+});
+$('#fin-note').addEventListener('input', updateFinConfirm);
+$('#fin-confirm').addEventListener('click', finalizeSubmit);
+$('#fin-close').addEventListener('click', closeFinalize);
+$('#fin-cancel').addEventListener('click', closeFinalize);
+$('#finalize-modal').addEventListener('click', (e) => { if (e.target.id === 'finalize-modal') closeFinalize(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#finalize-modal').hidden) closeFinalize(); });
 
 // ---- chat transcript popup ----
 function fmtTime(ts) {
@@ -297,8 +366,8 @@ $('#chat-close').addEventListener('click', closeChat);
 $('#chat-modal').addEventListener('click', (e) => { if (e.target.id === 'chat-modal') closeChat(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#chat-modal').hidden) closeChat(); });
 
-// export menu
-$('#btn-export').addEventListener('click', (e) => { e.stopPropagation(); $('#export-menu').hidden = !$('#export-menu').hidden; });
+// "Mais" menu (export + catalog)
+$('#btn-more').addEventListener('click', (e) => { e.stopPropagation(); $('#export-menu').hidden = !$('#export-menu').hidden; });
 document.addEventListener('click', () => { $('#export-menu').hidden = true; });
 
 // ---- catalog import ----
@@ -314,7 +383,7 @@ async function refreshCatalogBadge() {
     }
   } catch {}
 }
-$('#btn-catalog').addEventListener('click', () => $('#catalog-file').click());
+$('#btn-catalog').addEventListener('click', (e) => { e.preventDefault(); $('#catalog-file').click(); });
 $('#catalog-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
