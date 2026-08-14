@@ -11,6 +11,7 @@
     "serve": "node src/server.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",

@@ -28,6 +28,7 @@ export async function buildWorkbook(result) {
     { header: 'Produto', key: 'produto', width: 34 },
     { header: 'Preço', key: 'produtoPreco', width: 12 },
     { header: 'Atendente', key: 'atendente', width: 14 },
+    { header: 'Nota IA', key: 'aiNota', width: 9 },
     { header: 'Cliente aguardando', key: 'aguardando', width: 12 },
     { header: 'Aguardando (min)', key: 'aguardandoMin', width: 16 },
     { header: '1ª resposta (min)', key: 'primeiraRespostaMin', width: 16 },
@@ -62,6 +63,7 @@ export async function buildWorkbook(result) {
       feito: r.feito ? 'Sim' : '',
       feitoNota: neutralizeCell(r.feitoNota),
       feitoPor: neutralizeCell(r.feitoPor),
+      aiNota: typeof r.aiNota === 'number' ? r.aiNota : null,
       tags: neutralizeCell((r.tags || []).join(', ')),
       produtoPreco: r.produtoPreco || null,
       ultimaInteracao: r.ultimaInteracao ? new Date(r.ultimaInteracao) : null,
@@ -73,7 +75,7 @@ export async function buildWorkbook(result) {
     if (r.feito) row.font = { color: { argb: 'FF9AA3B2' }, strike: true };
     row.getCell('contexto').alignment = { wrapText: false };
   }
-  ws.autoFilter = { from: 'A1', to: 'T1' };
+  ws.autoFilter = { from: 'A1', to: 'U1' };
 
   // Resumo sheet
   const rs = wb.addWorksheet('Resumo');

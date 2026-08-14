@@ -19,6 +19,7 @@ import { detectProducts } from './products.js';
 import { matchProduct } from './catalog.js';
 import { attendantName, responseMetrics, leadScore, parseAttendant } from './metrics.js';
 import { loadDone, loadNoAnswer, appendSnapshot } from './store.js';
+import { createScorer } from './ai.js';
 import { neutralizeCell } from './sanitize.js';
 
 const TAG_NAME = (process.env.NEGOCIANDO_TAG_NAME || 'negociando').toLowerCase();
@@ -239,6 +240,60 @@ function formatPhone(p) {
   return '+' + d;
 }
 
+/** Row shape for a finalized lead that is no longer in the extraction (left the
+ * tag). Rebuilt from the snapshot taken when the lead was concluded. */
+function archivedRow(id, entry) {
+  const s = entry.snap || {};
+  return {
+    bot: s.bot || '',
+    nome: s.nome || s.contato || id,
+    contato: s.contato || '',
+    telefone: s.telefone || '',
+    canal: s.canal || '',
+    situacao: s.situacao || 'Aberto',
+    statusSistema: '',
+    tags: Array.isArray(s.tags) ? s.tags : [],
+    produto: s.produto || '',
+    produtoCodigo: s.produtoCodigo || '',
+    produtoPreco: null,
+    produtoCategoria: '',
+    produtoFonte: '',
+    produtoTrecho: '',
+    atendente: s.atendente || '—',
+    departamento: s.departamento || '—',
+    ultimaInteracao: s.ultimaInteracao || null,
+    ultimaInteracaoMs: s.ultimaInteracaoMs || null,
+    horasDesde: null,
+    temperatura: 'frio',
+    motivos: [],
+    interesseScore: null,
+    aguardando: false,
+    aguardandoMin: null,
+    paraLigar: false,
+    naoAtendeuCount: 0,
+    naoAtendeuAt: null,
+    naoAtendeuNota: '',
+    noAnswerBucket: false,
+    primeiraRespostaMin: null,
+    respostaMedianaMin: null,
+    naoLidas: 0,
+    ultimoRemetente: '',
+    contexto: s.contexto || '',
+    aiNota: typeof s.aiNota === 'number' ? s.aiNota : null,
+    aiMotivo: s.aiMotivo || '',
+    conversationId: id,
+    feito: true,
+    feitoAt: entry.at || null,
+    feitoReason: entry.reason || '',
+    feitoReasonLabel: reasonLabel(entry.reason),
+    feitoNota: entry.note || '',
+    feitoPor: entry.by || '',
+    arquivado: true,           // saiu da carteira "negociando"; só na aba Finalizados
+    botId: s.botId || '',
+    chatUrl: s.chatUrl || '',
+  };
+}
+
 /** Core: return normalized rows for all "negociando" chats across the user's bots. */
 export async function extractNegociando(auth) {
   ensureDirs();
@@ -304,6 +359,8 @@ export async function extractNegociando(auth) {
         naoLidas: conv.unread_messages || 0,
         ultimoRemetente: conv.last_message_sender || '',
         contexto: lastText(conv),
+        aiNota: null,          // nota IA (0-10) do atendimento do vendedor
+        aiMotivo: '',          // justificativa curtíssima da nota
         conversationId: conv.conversation_id || conv._id,
         feito: !!feito,
         feitoAt: feito ? feito.at : null,
@@ -320,7 +377,8 @@ export async function extractNegociando(auth) {
   }
 
   // Per-chat enrichment: fetch transcript once, then derive product + attendant +
-  // response speed + temperature.
+  // response speed + temperature + nota IA (cached; only re-scores changed chats).
+  const scorer = createScorer();
   await mapLimit(pending, 6, async ({ row, botId, convId, horasDesde }) => {
     try {
       const messages = await fetchMessages(idToken, botId, convId);
@@ -361,10 +419,23 @@ export async function extractNegociando(auth) {
       row.temperatura = ls.temperatura;
       row.motivos = ls.motivos;
       row.interesseScore = ls.score;
+
+      // nota IA do atendimento (no-op sem ANTHROPIC_API_KEY; cacheada por chat)
+      const ai = await scorer.score(row, normalizeTranscript(messages));
+      if (ai) { row.aiNota = ai.nota; row.aiMotivo = ai.motivo || ''; }
     } catch {
       row.temperatura = temperaturaOf(horasDesde, false);
     }
   });
+  scorer.flush();
+
+  // Leads finalizados que saíram da tag "negociando" continuam visíveis na aba
+  // "Finalizados" (retenção de 180 dias) via snapshot salvo na conclusão.
+  const present = new Set(rows.map((r) => r.conversationId));
+  for (const [id, entry] of Object.entries(doneMap)) {
+    if (present.has(id) || !entry.snap) continue;
+    rows.push(archivedRow(id, entry));
+  }
 
   // Sort: longest-waiting first (call queue by seniority), then hottest, then most recent.
   const TEMP_ORDER = { quente: 0, morno: 1, frio: 2 };
@@ -373,28 +444,13 @@ export async function extractNegociando(auth) {
     (TEMP_ORDER[a.temperatura] - TEMP_ORDER[b.temperatura]) ||
     ((b.ultimaInteracaoMs || 0) - (a.ultimaInteracaoMs || 0)));
 
-  const by = (pred) => rows.filter(pred).length;
   const result = {
     generatedAt: new Date(now).toISOString(),
     account: email,
     tag: TAG_NAME,
     botsScanned: bots.map((b) => b.name),
     conversationsScanned: scanned,
-    count: rows.length,
-    situacao: {
-      abertos: by((r) => r.situacao === 'Aberto'),
-      vendidos: by((r) => r.situacao === 'Vendido'),
-      descartados: by((r) => r.situacao === 'Descartado'),
-    },
-    temperatura: {
-      quentes: by((r) => r.temperatura === 'quente'),
-      mornos: by((r) => r.temperatura === 'morno'),
-      frios: by((r) => r.temperatura === 'frio'),
-    },
-    aguardando: by((r) => r.aguardando),
-    aguardando24h: by((r) => r.paraLigar),
-    naoAtendeu: by((r) => r.noAnswerBucket),
-    feitos: by((r) => r.feito),
+    ...summarizeRows(rows),
     rows,
   };
 
@@ -422,6 +478,7 @@ const CSV_COLS = [
   ['produto', 'Produto'], ['produtoCodigo', 'Cód. produto'], ['produtoPreco', 'Preço'],
   ['produtoCategoria', 'Categoria'], ['produtoFonte', 'Origem produto'],
   ['atendente', 'Atendente'], ['departamento', 'Departamento'],
+  ['aiNota', 'Nota IA (0-10)'], ['aiMotivo', 'Motivo IA'],
   ['aguardando', 'Cliente aguardando'], ['aguardandoMin', 'Aguardando (min)'],
   ['primeiraRespostaMin', '1ª resposta (min)'], ['respostaMedianaMin', 'Resp. mediana (min)'],
   ['feito', 'Feito'], ['feitoAt', 'Feito em'],
@@ -433,14 +490,16 @@ const CSV_COLS = [
   ['canal', 'Canal'], ['conversationId', 'Conversation ID'],
 ];
 
-/** Recompute the summary counts for an arbitrary subset of rows (used by filtered export). */
+/** Recompute the summary counts for an arbitrary subset of rows (used by the
+ * dashboard and the filtered export). Finalized leads live in their own tab, so
+ * the actionable counters (abertos, aguardando, fila, não atendeu) exclude them. */
 export function summarizeRows(rows) {
   const by = (pred) => rows.filter(pred).length;
   return {
     count: rows.length,
     situacao: {
-      abertos: by((r) => r.situacao === 'Aberto'),
-      vendidos: by((r) => r.situacao === 'Vendido'),
+      abertos: by((r) => r.situacao === 'Aberto' && !r.feito),
+      vendidos: by((r) => r.situacao === 'Vendido' || r.feitoReason === 'vendido'),
       descartados: by((r) => r.situacao === 'Descartado'),
     },
     temperatura: {
@@ -448,9 +507,9 @@ export function summarizeRows(rows) {
       mornos: by((r) => r.temperatura === 'morno'),
       frios: by((r) => r.temperatura === 'frio'),
     },
-    aguardando: by((r) => r.aguardando),
-    aguardando24h: by((r) => r.paraLigar),
-    naoAtendeu: by((r) => r.noAnswerBucket),
+    aguardando: by((r) => r.aguardando && !r.feito),
+    aguardando24h: by((r) => r.paraLigar && !r.feito),
+    naoAtendeu: by((r) => r.noAnswerBucket && !r.feito),
     feitos: by((r) => r.feito),
   };
 }

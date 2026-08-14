@@ -62,11 +62,13 @@ O catálogo de produtos **não é versionado** — cada deployment carrega o seu
 
 ### Página **Leads** (`/`)
 - Botão **Extrair** re-executa a extração; **auto-atualização a cada 15 min**.
-- **Filtro inteligente por situação** (derivada das tags): **Abertos** (padrão) · Todos · Vendidos · Descartados. Assim os leads já vendidos/descartados não poluem a fila de ligação.
+- **Filtro por situação**: **Abertos** (padrão) · Não atendeu · **Finalizados** · Todos · Vendidos · Descartados. Leads finalizados vivem só na aba Finalizados e não poluem a fila de ligação.
 - **Etiqueta de temperatura** (faixa colorida à esquerda): 🔴 quente · 🟠 morno · 🔵 frio (por recência + se o cliente está aguardando resposta).
 - Badge **⏳ aguardando** quando o cliente mandou a última mensagem e espera resposta.
-- **Telefone formatado** + botão de **copiar** (ícone) e atalho **wa** (WhatsApp).
-- Botão **Marcar feito** por lead (persistente e compartilhado na rede — para o atendente marcar quando ligar). "Ocultar feitos" liga/desliga.
+- **Telefone formatado** + ícones de **copiar**, **WhatsApp** e **👁 ver conversa** (transcript completo em popup).
+- Botão **Finalizar** por lead: popup com o desfecho (Vendido, Sem retorno, Sem interesse, Comprou concorrente, Outro), registro de **"Não atendeu a ligação"** e **justificativas reutilizáveis** (selecione uma pronta ou escreva e salve a sua). Tudo persistente e compartilhado na rede.
+- **Aba Finalizados**: histórico de quem concluiu, quando e por quê — mesmo que o lead saia da tag "negociando" (snapshot). Expurgo automático após **180 dias** (`DONE_RETENTION_DAYS`).
+- **Nota IA (0-10)** do atendimento do vendedor por conversa (opcional — requer `ANTHROPIC_API_KEY`). Usa modelo barato, transcript compacto e cache por conversa: só gasta tokens quando o chat muda.
 - **Exportar**: Excel (`.xlsx` estilizado) ou CSV.
 
 ### Página **Timeline** (`/timeline.html`)
@@ -85,7 +87,8 @@ Monitoramento corporativo com dados reais:
 | `src/products.js` | Fallback: quando nenhum modelo é citado, detecta a **categoria** (Colchão, Cama casal, Guarda-roupa…) por palavra-chave. Edite `PRODUCT_RULES`. |
 | `src/metrics.js` | Nome real do atendente (do texto da conversa) + velocidade de resposta correta (pergunta→resposta). |
 | `src/timeline.js` | Agrega métricas históricas para a página Timeline. |
-| `src/store.js` | Persistência do "Feito" e snapshots do pipeline. |
+| `src/store.js` | Persistência do "Feito" (com snapshot + expurgo de 180 dias), justificativas reutilizáveis e snapshots do pipeline. |
+| `src/ai.js` | Nota IA (0-10) do atendimento por conversa (Claude Haiku, transcript compacto, cache em `data/ai-scores.json`). |
 | `src/xlsx.js` | Exportação Excel estilizada (exceljs). |
 | `src/server.js` | Express + rede local (`/api/extract`, `/api/data`, `/api/done`, `/api/download[.xlsx]`, `/api/timeline`). |
 | `src/config.js` | Carrega `.env`, caminhos e parâmetros. |

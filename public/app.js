@@ -36,20 +36,22 @@ function effWaitMin(r) {
 
 function visibleRows() {
   const q = $('#search').value.trim().toLowerCase();
-  const hideDone = $('#hide-done').checked;
   let rows = DATA.rows.slice();
-  const bucket = filterSituacao === 'naoAtendeu';
-  if (bucket) {
-    rows = rows.filter((r) => r.noAnswerBucket);            // the "Não atendeu" filter
+  if (filterSituacao === 'finalizados') {
+    rows = rows.filter((r) => r.feito);                     // resolved leads live only here
   } else {
-    rows = rows.filter((r) => !r.noAnswerBucket);           // bucket leads live only in their filter
-    if (filterSituacao !== 'all') rows = rows.filter((r) => r.situacao === filterSituacao);
-    if (onlyCall24h) rows = rows.filter((r) => r.paraLigar);
+    rows = rows.filter((r) => !r.feito);                    // ...and never pollute the work queues
+    if (filterSituacao === 'naoAtendeu') {
+      rows = rows.filter((r) => r.noAnswerBucket);          // the "Não atendeu" filter
+    } else {
+      rows = rows.filter((r) => !r.noAnswerBucket);         // bucket leads live only in their filter
+      if (filterSituacao !== 'all') rows = rows.filter((r) => r.situacao === filterSituacao);
+      if (onlyCall24h) rows = rows.filter((r) => r.paraLigar);
+    }
+    rows = rows.filter((r) => tempOn[r.temperatura]);
   }
-  rows = rows.filter((r) => tempOn[r.temperatura]);
-  if (hideDone) rows = rows.filter((r) => !r.feito);
   if (q) rows = rows.filter((r) =>
-    [r.nome, r.contato, r.telefone, r.produto, r.atendente, r.departamento, r.contexto, (r.tags || []).join(' ')]
+    [r.nome, r.contato, r.telefone, r.produto, r.atendente, r.departamento, r.contexto, r.feitoNota, (r.tags || []).join(' ')]
       .join(' ').toLowerCase().includes(q));
   if (sortKey) {
     rows.sort((a, b) => {
@@ -58,6 +60,8 @@ function visibleRows() {
       if (x == null) x = -Infinity; if (y == null) y = -Infinity;
       return x < y ? -sortDir : x > y ? sortDir : 0;
     });
+  } else if (filterSituacao === 'finalizados') {
+    rows.sort((a, b) => (Date.parse(b.feitoAt || 0) || 0) - (Date.parse(a.feitoAt || 0) || 0)); // most recent first
   } else {
     rows.sort((a, b) => effWaitMin(b) - effWaitMin(a));      // default: longest effective wait on top
   }
@@ -71,11 +75,12 @@ function render() {
     rowsEl.innerHTML = `<tr class="empty"><td colspan="7">${DATA.generatedAt ? 'Nenhum lead neste filtro.' : 'Sem dados. Clique em Extrair.'}</td></tr>`;
     return;
   }
+  const finTab = filterSituacao === 'finalizados';
   rowsEl.innerHTML = rows.map((r) => {
     const temp = `<span class="temp-tag t-${r.temperatura}">${TEMP_LABEL[r.temperatura]}</span>`;
     const sit = `<span class="badge-sit s-${r.situacao.toLowerCase()}">${r.situacao}</span>`;
     const waitU = r.aguardandoMin == null ? '' : r.aguardandoMin >= 72 * 60 ? ' u3' : r.aguardandoMin >= 48 * 60 ? ' u2' : r.aguardandoMin >= 24 * 60 ? ' u1' : '';
-    const wait = r.aguardando ? `<span class="badge-wait${waitU}" title="Cliente enviou a última mensagem e aguarda resposta">Aguardando${r.aguardandoMin != null ? ' ' + fmtDur(r.aguardandoMin) : ''}</span>` : '';
+    const wait = (!r.feito && r.aguardando) ? `<span class="badge-wait${waitU}" title="Cliente enviou a última mensagem e aguarda resposta">Aguardando${r.aguardandoMin != null ? ' ' + fmtDur(r.aguardandoMin) : ''}</span>` : '';
     const prodCls = r.produtoFonte === 'catálogo' ? 'prod cat' : 'prod';
     const preco = (typeof r.produtoPreco === 'number' && r.produtoPreco > 0)
       ? ` <span class="preco">R$ ${r.produtoPreco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>` : '';
@@ -89,10 +94,20 @@ function render() {
     const waText = r.noAnswerBucket ? '?text=' + encodeURIComponent(noAnswerMsg(r.nome)) : '';
     const naTag = r.naoAtendeuCount ? `<span class="badge-na" title="Ligações sem resposta">Não atendeu · ${r.naoAtendeuCount}</span>` : '';
     const doneChip = r.feito ? `<span class="badge-done"${r.feitoNota ? ` title="${esc(r.feitoNota)}"` : ''}>✓ ${esc(reasonLabelJS(r.feitoReason) || 'Concluído')}</span>` : '';
-    return `<tr class="temp-${r.temperatura}${r.feito ? ' done' : ''}">
+    const archChip = r.arquivado ? '<span class="pill" title="Este lead não está mais na tag negociando; mantido no histórico por 180 dias">arquivado</span>' : '';
+    // Finalizados tab: who concluded, when and why — the audit line the team reads.
+    const finLine = finTab && r.feito
+      ? `<div class="sub-info">${fmtWhen(r.feitoAt)}${r.feitoPor ? ' · ' + esc(r.feitoPor) : ''}${r.feitoNota ? ` — “${esc(r.feitoNota)}”` : ''}</div>`
+      : '';
+    const eyeBtn = r.botId
+      ? `<button class="icon-btn eye-btn" data-id="${esc(r.conversationId)}" data-bot="${esc(r.botId)}" title="Ver conversa">${EYE_ICON}</button>` : '';
+    const aiBadge = (typeof r.aiNota === 'number')
+      ? `<span class="ai-badge n-${r.aiNota >= 8 ? 'good' : r.aiNota >= 5 ? 'mid' : 'bad'}" title="Nota IA do atendimento do vendedor${r.aiMotivo ? ': ' + esc(r.aiMotivo) : ''}">IA ${r.aiNota}/10</span>` : '';
+    return `<tr class="temp-${r.temperatura}${r.feito && !finTab ? ' done' : ''}">
       <td class="nome">
         <div class="nm-line">${temp}<span class="nm">${esc(r.nome)}</span></div>
-        <div class="badges">${sit}${wait}${naTag}${doneChip}</div>
+        <div class="badges">${sit}${wait}${naTag}${doneChip}${archChip}</div>
+        ${finLine}
         ${motivoLine}
         ${tags ? `<div class="tags">${tags}</div>` : ''}
       </td>
@@ -101,12 +116,13 @@ function render() {
         <span class="phone-actions">
           <button class="icon-btn copy" data-copy="+${esc(r.telefone)}" title="Copiar número">${COPY_ICON}</button>
           <a class="icon-btn" href="https://wa.me/${esc(r.telefone)}${waText}" target="_blank" rel="noopener" title="Abrir no WhatsApp">${WA_ICON}</a>
+          ${eyeBtn}
         </span>
       </td>
       <td data-label="Produto">${prod}</td>
       <td data-label="Atendente">${esc(r.atendente)}</td>
       <td class="when" data-label="Última mensagem"><div>${fmtWhen(r.ultimaInteracao)}</div><div class="sub-info">${ago(r.ultimaInteracaoMs)}</div></td>
-      <td class="ctx" data-label="Contexto">${esc(r.contexto)}</td>
+      <td class="ctx" data-label="Contexto">${aiBadge}${esc(r.contexto)}</td>
       <td class="act" data-label="Ação">${actionsHtml(r)}</td>
     </tr>`;
   }).join('');
@@ -124,15 +140,15 @@ function noAnswerMsg(nome) {
   return `${fn ? 'Olá ' + fn : 'Olá'}, tudo bem? Aqui é da Belmont. Tentei falar com você por telefone sobre o seu atendimento e não consegui. Fico à disposição por aqui quando puder!`;
 }
 
-// Per-lead actions: view the conversation + one "Finalizar" button that opens the
-// outcome popup (conclude with a reason, register "não atendeu", reopen, etc).
+// Per-lead action: one "Finalizar" button that opens the outcome popup
+// (conclude with a reason, register "não atendeu", reopen, etc). The eye
+// (transcript) button lives next to the phone number, with copy + WhatsApp.
 function actionsHtml(r) {
   const id = esc(r.conversationId);
-  const eye = `<button class="icon-btn eye-btn" data-id="${id}" data-bot="${esc(r.botId)}" title="Ver conversa">${EYE_ICON}</button>`;
   const fin = r.feito
     ? `<button class="fin-btn is-done" data-id="${id}" title="Concluído — clique para ver, alterar ou reabrir">✓ Concluído</button>`
     : `<button class="fin-btn" data-id="${id}">Finalizar</button>`;
-  return `<div class="act-row">${eye}${fin}</div>`;
+  return `<div class="act-row">${fin}</div>`;
 }
 
 function fmtDur(min) {
@@ -152,6 +168,7 @@ function paintStats() {
   $('#s-call24').textContent = DATA.aguardando24h ?? 0;
   $('#s-naoatendeu').textContent = DATA.naoAtendeu ?? 0;
   $('#s-vendidos').textContent = s.vendidos ?? 0;
+  $('#s-finalizados').textContent = DATA.feitos ?? 0;
   $('#s-when').textContent = fmtWhen(DATA.generatedAt);
   $('#meta').innerHTML = has
     ? `Conta <strong>${esc(DATA.account || '')}</strong> · ${DATA.count} em negociando · ${DATA.conversationsScanned} conversas varridas`
@@ -184,6 +201,19 @@ async function postJSON(url, body) {
 
 // ---- "Finalizar" outcome popup ----
 let finId = null, finChoice = null, finKind = null;
+let JUSTIFS = null; // reusable justificativas (shared across the team)
+
+async function fetchJustifs(force = false) {
+  if (JUSTIFS && !force) return JUSTIFS;
+  try { JUSTIFS = (await (await authFetch('/api/justificativas')).json()).items || []; }
+  catch { JUSTIFS = JUSTIFS || []; }
+  return JUSTIFS;
+}
+function renderJustifs() {
+  $('#fin-justifs').innerHTML = (JUSTIFS || []).map((t) =>
+    `<button type="button" class="justif-chip" data-t="${esc(t)}">${esc(t)}<span class="justif-x" data-x="${esc(t)}" title="Excluir esta justificativa">×</span></button>`
+  ).join('');
+}
 
 function finOptBtn(choice, kind, label, dot) {
   return `<button type="button" class="fin-opt" data-choice="${choice}" data-kind="${kind}"><span class="fin-dot d-${dot}"></span><span class="fin-opt-label">${label}</span></button>`;
@@ -217,6 +247,8 @@ function openFinalize(id) {
   } else { cur.hidden = true; cur.innerHTML = ''; }
   $('#fin-options').innerHTML = finOptionsHtml(r);
   $('#fin-note').value = r.feito ? (r.feitoNota || '') : '';
+  renderJustifs();
+  fetchJustifs().then(renderJustifs);
   updateFinConfirm();
   $('#finalize-modal').hidden = false;
 }
@@ -244,7 +276,7 @@ async function finalizeSubmit() {
     if (kind === 'done') {
       const j = await postJSON('/api/done', { id, done: true, reason: choice, note });
       if (row) { row.feito = true; row.feitoAt = j.at; row.feitoReason = j.reason || choice; row.feitoNota = j.note || note; row.feitoPor = currentUser() || ''; }
-      toast(`Lead concluído: ${reasonLabelJS(choice)}.`);
+      toast(`Lead concluído: ${reasonLabelJS(choice)}. Movido para "Finalizados".`);
     } else if (kind === 'reopen') {
       await postJSON('/api/done', { id, done: false });
       if (row) { row.feito = false; row.feitoAt = null; row.feitoReason = ''; row.feitoNota = ''; row.feitoPor = ''; }
@@ -252,14 +284,14 @@ async function finalizeSubmit() {
     } else if (kind === 'na') {
       const j = await postJSON('/api/noanswer', { id, reset: false, note });
       if (row) { row.naoAtendeuCount = j.count; row.naoAtendeuAt = j.at; row.naoAtendeuNota = j.note || note; row.noAnswerBucket = j.count >= 2; }
-      DATA.naoAtendeu = DATA.rows.filter((r) => r.noAnswerBucket).length;
       toast(j.count >= 2 ? 'Movido para "Não atendeu".' : 'Registrado. Voltou pro fim da fila.');
     } else if (kind === 'reset') {
       const j = await postJSON('/api/noanswer', { id, reset: true });
       if (row) { row.naoAtendeuCount = j.count || 0; row.naoAtendeuAt = j.at; row.noAnswerBucket = false; }
-      DATA.naoAtendeu = DATA.rows.filter((r) => r.noAnswerBucket).length;
       toast('Voltou para a fila.');
     }
+    DATA.feitos = DATA.rows.filter((r) => r.feito).length;
+    DATA.naoAtendeu = DATA.rows.filter((r) => r.noAnswerBucket && !r.feito).length;
     closeFinalize();
     paintStats(); render();
   } catch (e) { toast('Erro: ' + (e.message || e)); updateFinConfirm(); }
@@ -291,15 +323,23 @@ const WA_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentCo
 // ---- events ----
 $('#btn-extract').addEventListener('click', () => extract(false));
 $('#search').addEventListener('input', render);
-$('#hide-done').addEventListener('change', render);
 $('#only-24h').addEventListener('change', (e) => { onlyCall24h = e.target.checked; render(); });
 
+// Temperature chips and the 24h queue filter only make sense in the work
+// queues — hide them in "Não atendeu" (queue is fixed) and "Finalizados".
+function paintToolbarContext() {
+  $('#chips-temp').hidden = filterSituacao === 'finalizados';
+  $('#lbl-24h').hidden = filterSituacao !== 'Aberto' && filterSituacao !== 'all'
+    && filterSituacao !== 'Vendido' && filterSituacao !== 'Descartado';
+}
 $('#seg-situacao').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   filterSituacao = b.dataset.v;
   [...e.currentTarget.children].forEach((x) => x.classList.toggle('active', x === b));
+  paintToolbarContext();
   render();
 });
+paintToolbarContext();
 $('#chips-temp').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   tempOn[b.dataset.t] = !tempOn[b.dataset.t];
@@ -326,6 +366,29 @@ $('#fin-options').addEventListener('click', (e) => {
   finChoice = b.dataset.choice; finKind = b.dataset.kind;
   [...$('#fin-options').querySelectorAll('.fin-opt')].forEach((x) => x.classList.toggle('selected', x === b));
   updateFinConfirm();
+});
+// Justificativa chips: click fills the textarea; the × removes a saved one.
+$('#fin-justifs').addEventListener('click', async (e) => {
+  const x = e.target.closest('.justif-x');
+  if (x) {
+    e.stopPropagation();
+    try {
+      const j = await postJSON('/api/justificativas', { text: x.dataset.x, remove: true });
+      JUSTIFS = j.items; renderJustifs();
+    } catch (err) { toast('Erro: ' + err.message); }
+    return;
+  }
+  const chip = e.target.closest('.justif-chip');
+  if (chip) { $('#fin-note').value = chip.dataset.t; updateFinConfirm(); }
+});
+$('#fin-note-save').addEventListener('click', async () => {
+  const text = $('#fin-note').value.trim();
+  if (!text) { toast('Escreva a justificativa antes de salvar.'); return; }
+  try {
+    const j = await postJSON('/api/justificativas', { text });
+    JUSTIFS = j.items; renderJustifs();
+    toast('Justificativa salva para reutilizar.');
+  } catch (err) { toast('Erro: ' + err.message); }
 });
 $('#fin-note').addEventListener('input', updateFinConfirm);
 $('#fin-confirm').addEventListener('click', finalizeSubmit);

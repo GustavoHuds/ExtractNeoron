@@ -246,6 +246,22 @@ tbody td { vertical-align: top; padding-top: 12px; padding-bottom: 12px; }
 .fin-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--border); background: var(--surface-2); }
 .btn-ghost { background: transparent; }
 
+/* Justificativa chips (preset + saved) inside the Finalizar popup */
+.fin-justifs { display: flex; flex-wrap: wrap; gap: 6px; }
+.fin-justifs:empty { display: none; }
+.justif-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 12px; font-weight: 500; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text-2); }
+.justif-chip:hover { border-color: var(--accent); color: var(--text); background: var(--accent-weak); }
+.justif-x { color: var(--muted); font-size: 13px; line-height: 1; padding: 0 2px; }
+.justif-x:hover { color: var(--danger); }
+.fin-save { align-self: flex-start; padding: 4px 10px; font-size: 12px; color: var(--muted); border-color: var(--border); }
+.fin-save:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-weak); }
+
+/* Nota IA do atendimento (badge no Contexto) */
+.ai-badge { display: inline-block; margin: 0 8px 3px 0; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; padding: 2px 7px; border-radius: var(--r-sm); cursor: default; white-space: nowrap; }
+.ai-badge.n-good { color: var(--sold); background: var(--sold-weak); }
+.ai-badge.n-mid { color: var(--warm); background: var(--warm-weak); }
+.ai-badge.n-bad { color: var(--danger); background: var(--danger-weak); }
+
 /* ---- chat transcript popup ---- */
 #chat-modal { position: fixed; inset: 0; z-index: 25; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(10,13,20,.74); }
 .chat-card { display: flex; flex-direction: column; width: 560px; max-width: 100%; height: 82vh; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }

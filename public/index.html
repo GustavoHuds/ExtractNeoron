@@ -53,6 +53,7 @@
     <div class="stat"><span id="s-call24">0</span><label>Para ligar (+24h)</label></div>
     <div class="stat"><span id="s-naoatendeu">0</span><label>Não atendeu</label></div>
     <div class="stat"><span id="s-vendidos">0</span><label>Vendidos</label></div>
+    <div class="stat"><span id="s-finalizados">0</span><label>Finalizados</label></div>
     <div class="stat"><span id="s-when">—</span><label>Atualizado</label></div>
   </section>
 
@@ -60,6 +61,7 @@
     <div class="seg" id="seg-situacao">
       <button data-v="Aberto" class="active">Abertos</button>
       <button data-v="naoAtendeu">Não atendeu</button>
+      <button data-v="finalizados">Finalizados</button>
       <button data-v="all">Todos</button>
       <button data-v="Vendido">Vendidos</button>
       <button data-v="Descartado">Descartados</button>
@@ -69,8 +71,7 @@
       <button data-t="morno" class="chip m active">Morno</button>
       <button data-t="frio" class="chip f active">Frio</button>
     </div>
-    <label class="check"><input type="checkbox" id="only-24h" checked /> Só aguardando +24h</label>
-    <label class="check"><input type="checkbox" id="hide-done" checked /> Ocultar concluídos</label>
+    <label class="check" id="lbl-24h"><input type="checkbox" id="only-24h" checked /> Só aguardando +24h</label>
     <input id="search" type="search" placeholder="Buscar nome, telefone, produto, atendente…" />
     <span class="counter" id="counter"></span>
   </section>
@@ -122,10 +123,12 @@
       <div class="fin-body">
         <div id="fin-current" class="fin-current" hidden></div>
         <div id="fin-options" class="fin-options"></div>
-        <label class="fin-note-wrap">
-          <span class="fin-note-label">Observação <span id="fin-note-hint" class="fin-hint">(opcional)</span></span>
-          <textarea id="fin-note" rows="3" placeholder="Detalhe o que aconteceu…"></textarea>
-        </label>
+        <div class="fin-note-wrap">
+          <span class="fin-note-label">Justificativa <span id="fin-note-hint" class="fin-hint">(opcional)</span></span>
+          <div id="fin-justifs" class="fin-justifs"></div>
+          <textarea id="fin-note" rows="3" placeholder="Selecione uma justificativa acima ou escreva a sua…"></textarea>
+          <button type="button" id="fin-note-save" class="btn-ghost fin-save" title="Guardar o texto acima para reutilizar em próximos leads">+ Salvar como justificativa</button>
+        </div>
       </div>
       <footer class="fin-foot">
         <button id="fin-cancel" class="btn-ghost">Cancelar</button>

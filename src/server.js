@@ -10,7 +10,7 @@ import { config, OUT_JSON } from './config.js';
 import { extractNegociando, toCsv, summarizeRows, fetchMessages, normalizeTranscript } from './extractor.js';
 import { buildWorkbook } from './xlsx.js';
 import { buildTimeline, loadCachedTimeline } from './timeline.js';
-import { setDone, bumpNoAnswer, resetNoAnswer } from './store.js';
+import { setDone, bumpNoAnswer, resetNoAnswer, loadJustifs, addJustif, removeJustif } from './store.js';
 import { requireAuth } from './auth.js';
 import { saveCatalog, catalogStatus, parseCatalogCsv } from './catalog.js';
 
@@ -84,15 +84,42 @@ app.post('/api/extract', async (req, res) => {
   finally { extracting = false; }
 });
 
+// Snapshot of a lead (from the last extraction) saved alongside the "done"
+// entry, so the Finalizados tab still shows the lead after it leaves the tag.
+function leadSnapshot(id) {
+  try {
+    const { rows = [] } = JSON.parse(fs.readFileSync(OUT_JSON, 'utf8'));
+    const r = rows.find((x) => x.conversationId === id);
+    if (!r) return null;
+    const { bot, nome, contato, telefone, canal, situacao, tags, produto, produtoCodigo,
+      atendente, departamento, ultimaInteracao, ultimaInteracaoMs, contexto, aiNota, aiMotivo,
+      botId, chatUrl } = r;
+    return { bot, nome, contato, telefone, canal, situacao, tags, produto, produtoCodigo,
+      atendente, departamento, ultimaInteracao, ultimaInteracaoMs, contexto, aiNota, aiMotivo,
+      botId, chatUrl };
+  } catch { return null; }
+}
+
 // Mark / unmark a lead as "Feito" (persisted, shared across the network).
 // When concluding, `reason` (preset outcome) and `note` (justificativa) are
 // recorded; `by` comes from the verified auth token, not the client.
 app.post('/api/done', (req, res) => {
   const { id, done, reason, note } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id obrigatório' });
-  const map = setDone(id, !!done, req.auth.email || '', reason || '', note || '');
+  const map = setDone(id, !!done, req.auth.email || '', reason || '', note || '', done ? leadSnapshot(id) : null);
   const entry = map[id] || {};
   res.json({ ok: true, feito: !!map[id], at: entry.at || null, reason: entry.reason || '', note: entry.note || '' });
+});
+
+// Reusable justificativas for the Finalizar popup (shared across the team).
+app.get('/api/justificativas', (_req, res) => {
+  res.json({ items: loadJustifs() });
+});
+app.post('/api/justificativas', (req, res) => {
+  const { text, remove } = req.body || {};
+  if (!text || !String(text).trim()) return res.status(400).json({ error: 'text obrigatório' });
+  const items = remove ? removeJustif(text) : addJustif(text);
+  res.json({ ok: true, items });
 });
 
 // Register (or reset) a "Não atendeu" call attempt for a lead.
