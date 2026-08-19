@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { indexEntry, applyIndex, summarizeRows, toCsv } from '../src/extract.js';
+import { indexEntry, applyIndex, summarizeRows, refreshRows, toCsv } from '../src/extract.js';
 import { baseLead } from '../src/lead.js';
 
 const MIN = 60_000;
@@ -95,6 +95,73 @@ test('summarizeRows: channel + funnel + month counters', () => {
   assert.equal(s.aguardando24h, 1);
   assert.equal(s.vendidosMes, 1);
   assert.equal(s.feitos, 1);
+});
+
+function storedResult() {
+  // as written to leads.json at extraction time: lead open and waiting
+  return {
+    generatedAt: '2026-08-10T10:00:00Z',
+    rows: [{
+      conversationId: 'c1', temUsuario: true, situacao: 'Aberto', etapa: 'negociando',
+      canal: 'WHATSAPP', telefone: '5583999990000', temperatura: 'quente',
+      feito: false, feitoAt: null, feitoReason: '', feitoReasonLabel: '', feitoNota: '', feitoPor: '',
+      naoAtendeuCount: 0, naoAtendeuAt: null, naoAtendeuNota: '', noAnswerBucket: false,
+      aguardando: true, aguardandoMin: 60, paraLigar: false, nome: 'Ana',
+      ultimaInteracaoMs: t0, tags: [], motivos: [],
+    }],
+  };
+}
+const IDX = {
+  c1: {
+    metaLastMs: t0, lastMs: t0, firstTs: t0, firstUserTs: t0, msgCount: 2, userMsgs: 1,
+    agentMsgs: 1, pendingUserTs: t0, interesseScore: 5, temperatura: 'quente',
+    motivos: [], monthsActive: ['2026-08'], firstResponseMs: 5 * MIN, medianResponseMs: 5 * MIN,
+  },
+};
+
+test('refreshRows: finalizing a lead reflects instantly, without re-extraction', () => {
+  const now = t0 + 26 * 60 * MIN;
+  const deps = { naMap: {}, skipMap: {}, index: IDX };
+
+  // before conclusion: open + in the call queue
+  const before = refreshRows(storedResult(), now, { ...deps, doneMap: {} });
+  assert.equal(before.rows[0].paraLigar, true);
+  assert.equal(before.situacao.abertos, 1);
+
+  // after conclusion (any outcome): out of open counters and out of the queue
+  const doneMap = { c1: { done: true, at: new Date(now).toISOString(), by: 'x@b.com', reason: 'sem_interesse', note: '' } };
+  const after = refreshRows(storedResult(), now, { ...deps, doneMap });
+  assert.equal(after.rows[0].feito, true);
+  assert.equal(after.rows[0].feitoReasonLabel, 'Sem interesse');
+  assert.equal(after.rows[0].aguardando, false);
+  assert.equal(after.rows[0].paraLigar, false);
+  assert.equal(after.situacao.abertos, 0);
+  assert.equal(after.feitos, 1);
+});
+
+test('refreshRows: call attempts and clock advance without re-extraction', () => {
+  const now = t0 + 30 * 60 * MIN;
+  const deps = { doneMap: {}, skipMap: {}, index: IDX };
+  const naMap = { c1: { count: 1, at: new Date(now - 10 * MIN).toISOString(), by: 'x', note: 'caixa postal' } };
+  const r = refreshRows(storedResult(), now, { ...deps, naMap }).rows[0];
+  assert.equal(r.naoAtendeuCount, 1);
+  assert.equal(r.aguardandoMin, 30 * 60);   // waiting time recomputed for "now"
+  assert.equal(r.paraLigar, true);
+});
+
+test('refreshRows: queue dismissal holds for the episode, expires on new message', () => {
+  const now = t0 + 26 * 60 * MIN;
+  const deps = { doneMap: {}, naMap: {} };
+
+  // dismissed this waiting episode → out of the queue flag-wise
+  const skipMap = { c1: { at: 'x', by: 'x', pendingUserTs: t0 } };
+  const dismissed = refreshRows(storedResult(), now, { ...deps, skipMap, index: IDX }).rows[0];
+  assert.equal(dismissed.filaDismissed, true);
+
+  // customer wrote again (newer pendingUserTs) → back in the queue
+  const idx2 = { c1: { ...IDX.c1, pendingUserTs: t0 + 60 * MIN } };
+  const back = refreshRows(storedResult(), now, { ...deps, skipMap, index: idx2 }).rows[0];
+  assert.equal(back.filaDismissed, false);
 });
 
 test('toCsv neutralizes formula injection and flattens tag objects', () => {

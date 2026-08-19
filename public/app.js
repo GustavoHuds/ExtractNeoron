@@ -298,74 +298,103 @@
     root.querySelectorAll('[data-act="done"]').forEach((b) => b.addEventListener('click', () => openDone(b.dataset.id)));
     root.querySelectorAll('[data-act="noanswer"]').forEach((b) => b.addEventListener('click', () => noAnswer(b.dataset.id, false)));
     root.querySelectorAll('[data-act="requeue"]').forEach((b) => b.addEventListener('click', () => noAnswer(b.dataset.id, true)));
+    // ✕ remove-from-queue: two-tap confirm (no blocking dialog)
+    root.querySelectorAll('[data-act="dismiss"]').forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.confirm) { dismissFromQueue(b.dataset.id); return; }
+      b.dataset.confirm = '1';
+      b.textContent = 'Remover?';
+      b.classList.add('btn-x-arm');
+      setTimeout(() => { b.dataset.confirm = ''; b.textContent = '✕'; b.classList.remove('btn-x-arm'); }, 2500);
+    }));
+  }
+
+  /** Apply changes to the local row and re-render NOW; the server call and the
+   * /api/data reload reconcile in the background (both reflect live state). */
+  function patchLocal(id, fields) {
+    const row = (S.data?.rows || []).find((x) => x.conversationId === id);
+    if (row) { Object.assign(row, fields); render(); }
+  }
+
+  async function dismissFromQueue(id) {
+    patchLocal(id, { filaDismissed: true });
+    toast('Removido da fila. Volta se o cliente escrever de novo.');
+    try {
+      await api('/api/fila/dismiss', { method: 'POST', body: JSON.stringify({ id }) });
+    } catch { /* reload below reconciles */ }
+    await loadData();
   }
 
   $('#load-more').addEventListener('click', () => { S.page++; renderPipeline(); });
 
   // ---------------------------------------------------------------- fila
-  function renderFila() {
-    const rows = openRows().filter((r) => !r.feito && r.situacao === 'Aberto');
-    const paraLigar = rows.filter((r) => (r.paraLigar || r.noAnswerBucket) && r.telefone)
-      .sort((a, b) => (b.noAnswerBucket ? -1 : (b.aguardandoMin || 0)) - (a.noAnswerBucket ? -1 : (a.aguardandoMin || 0)));
-    const igWaiting = rows.filter((r) => r.paraLigar && !r.telefone && r.instagram);
+  /**
+   * Call queue eligibility — commercial rules:
+   *  · WhatsApp leads only (a call needs a phone)
+   *  · funnel stage "negociando" only — sold/discarded/finished never appear
+   *  · customer waiting for a human reply ≥24h (or an unanswered call attempt
+   *    still pending a reply)
+   *  · ✕-dismissed leads stay out until the customer writes again
+   * Order: longest wait first; leads already tried today ("não atendeu") sink
+   * to the END of the queue, oldest attempt first — standard power-dialer flow.
+   */
+  function filaRows() {
+    return (S.data?.rows || []).filter((r) =>
+      r.temUsuario && !r.feito && !r.filaDismissed
+      && r.situacao === 'Aberto' && r.etapa === 'negociando'
+      && r.canal === 'WHATSAPP' && r.telefone
+      && (r.paraLigar || (r.naoAtendeuCount > 0 && r.aguardando)))
+      .sort((a, b) => {
+        const ga = a.naoAtendeuCount > 0 ? 1 : 0;
+        const gb = b.naoAtendeuCount > 0 ? 1 : 0;
+        if (ga !== gb) return ga - gb;                                        // attempted last
+        if (ga) return (Date.parse(a.naoAtendeuAt) || 0) - (Date.parse(b.naoAtendeuAt) || 0); // oldest attempt first
+        return (b.aguardandoMin || 0) - (a.aguardandoMin || 0);               // longest wait first
+      });
+  }
 
-    $('#fila-sub').textContent = paraLigar.length
-      ? `${paraLigar.length} cliente${paraLigar.length > 1 ? 's' : ''} esperando há mais de 24 h`
-      : 'Ninguém esperando há mais de 24 h. 👏';
+  function renderFila() {
+    const fila = filaRows();
+    const tentados = fila.filter((r) => r.naoAtendeuCount > 0).length;
+    $('#fila-sub').textContent = fila.length
+      ? `${fila.length} lead${fila.length > 1 ? 's' : ''} em negociação esperando há +24 h${tentados ? ` · ${tentados} já tentado${tentados > 1 ? 's' : ''} (fim da fila)` : ''}`
+      : 'Fila vazia — nenhum lead em negociação esperando há +24 h. 👏';
     $('#fila-chips').innerHTML = `
-      <span class="fila-chip hot">Para ligar ${paraLigar.length}</span>
+      <span class="fila-chip hot">Para ligar ${fila.length}</span>
       <span class="fila-chip">Aguardando ${S.data.aguardando ?? 0}</span>
       <span class="fila-chip">Quentes ${S.data.temperatura?.quentes ?? 0}</span>`;
 
-    $('#fila-cards').innerHTML = paraLigar.map(filaCard).join('') ||
-      '<div class="fila-empty">Fila vazia — todos os clientes de +24 h foram atendidos.</div>';
-
-    $('#fila-ig').innerHTML = igWaiting.length
-      ? `<div class="fila-section">Instagram aguardando +24 h</div>` + igWaiting.map(filaIgCard).join('')
-      : '';
+    $('#fila-cards').innerHTML = fila.map(filaCard).join('') ||
+      '<div class="fila-empty">Fila vazia — todos os leads em negociação de +24 h foram atendidos.</div>';
     bindLeadActions($('#view-fila'));
   }
 
   function filaCard(r) {
-    const noAnswer = r.noAnswerBucket || r.naoAtendeuCount > 0;
-    const big = noAnswer
+    const tried = r.naoAtendeuCount > 0;
+    const big = tried
       ? `<div class="fila-wait-big cool">${r.naoAtendeuCount}×</div><div class="fila-wait-label">não atendeu</div>`
       : `<div class="fila-wait-big">${fmtWait(r.aguardandoMin)}</div><div class="fila-wait-label">esperando</div>`;
-    const quote = noAnswer && r.naoAtendeuNota
-      ? `Última tentativa ${r.naoAtendeuAt ? fmtAgo(Date.parse(r.naoAtendeuAt)) : ''} · "${esc(r.naoAtendeuNota)}"`
+    const quote = tried
+      ? `Última tentativa ${r.naoAtendeuAt ? fmtAgo(Date.parse(r.naoAtendeuAt)) : ''}${r.naoAtendeuNota ? ` · "${esc(r.naoAtendeuNota)}"` : ''} · esperando há ${fmtWait(r.aguardandoMin)}`
       : r.contexto ? `"${esc(r.contexto)}"` : '';
+    const id = esc(r.conversationId);
     return `<div class="fila-card">
       <div class="fila-top">
         <div class="fila-who">
           <div class="fila-name-row"><span class="fila-name">${esc(r.nome)}</span>${tempBadge(r)}</div>
-          <span class="fila-prod">${esc(r.produto || 'produto não identificado')}${r.produtoPreco ? ' · ' + fmtBRL(r.produtoPreco) : ''}</span>
+          <span class="fila-prod">${esc(r.contato)} · ${esc(r.produto || 'produto não identificado')}${r.produtoPreco ? ' · ' + fmtBRL(r.produtoPreco) : ''}</span>
         </div>
         <div class="fila-wait">${big}</div>
       </div>
       ${quote ? `<p class="fila-quote">${quote}</p>` : ''}
       <div class="fila-btns">
-        <a class="btn btn-orange grow" href="tel:+${esc(r.telefone)}">${noAnswer ? 'Ligar de novo' : 'Ligar agora'}</a>
-        <a class="btn btn-ghost grow" href="https://wa.me/${esc(r.telefone)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>
-        ${noAnswer
-          ? `<button class="btn btn-ghost" data-act="requeue" data-id="${esc(r.conversationId)}">Voltar à fila</button>`
-          : `<button class="btn btn-ghost" data-act="noanswer" data-id="${esc(r.conversationId)}">Não atendeu</button>`}
+        <a class="btn btn-orange grow" href="https://wa.me/${esc(r.telefone)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+        <button class="btn btn-ghost grow" data-act="noanswer" data-id="${id}">Não atendeu</button>
       </div>
-    </div>`;
-  }
-
-  function filaIgCard(r) {
-    return `<div class="fila-card">
-      <div class="fila-top">
-        <div class="fila-who">
-          <div class="fila-name-row"><span class="fila-name">${esc(r.nome)}</span><span class="badge badge-ig">IG</span>${tempBadge(r)}</div>
-          <span class="fila-prod">@${esc(r.instagram)} · ${esc(r.produto || 'produto não identificado')}</span>
-        </div>
-        <div class="fila-wait"><div class="fila-wait-big">${fmtWait(r.aguardandoMin)}</div><div class="fila-wait-label">esperando</div></div>
-      </div>
-      ${r.contexto ? `<p class="fila-quote">"${esc(r.contexto)}"</p>` : ''}
-      <div class="fila-btns">
-        <a class="btn btn-orange grow" href="https://ig.me/m/${encodeURIComponent(r.instagram)}" target="_blank" rel="noopener noreferrer">Responder DM</a>
-        <button class="btn btn-ghost" data-act="done" data-id="${esc(r.conversationId)}">Finalizar</button>
+      <div class="fila-btns fila-btns-2nd">
+        <button class="btn btn-ghost" data-copy="${esc(r.telefone)}">Copiar número</button>
+        <button class="btn btn-ghost" data-act="chat" data-id="${id}">Ver conversa</button>
+        <button class="btn btn-ghost" data-act="done" data-id="${id}">Finalizar</button>
+        <button class="btn btn-ghost btn-x" data-act="dismiss" data-id="${id}" title="Remover da fila">✕</button>
       </div>
     </div>`;
   }
@@ -430,36 +459,55 @@
 
   $('#btn-done-confirm').addEventListener('click', async () => {
     if (!S.doneLead || !S.doneReason) return;
+    const id = S.doneLead.conversationId;
+    const reason = S.doneReason;
+    const note = $('#done-note').value.trim();
+    const labels = { vendido: 'Vendido', sem_retorno: 'Sem retorno', sem_interesse: 'Sem interesse', concorrente: 'Comprou concorrente', outro: 'Outro' };
+    closeModals();
+    // instant: the card leaves Abertos/fila now; server + reload reconcile
+    patchLocal(id, {
+      feito: true, feitoAt: new Date().toISOString(), feitoReason: reason,
+      feitoReasonLabel: labels[reason] || reason, feitoNota: note,
+      aguardando: false, aguardandoMin: null, paraLigar: false,
+    });
+    toast('Lead finalizado.');
     try {
-      const res = await api('/api/done', {
-        method: 'POST',
-        body: JSON.stringify({ id: S.doneLead.conversationId, done: true, reason: S.doneReason, note: $('#done-note').value.trim() }),
-      });
+      const res = await api('/api/done', { method: 'POST', body: JSON.stringify({ id, done: true, reason, note }) });
       if (!res.ok) throw new Error();
-      closeModals();
-      toast('Lead finalizado.');
-      await loadData();
-    } catch { toast('Falha ao finalizar.'); }
+    } catch { toast('Falha ao salvar a finalização — recarregando.'); }
+    await loadData();
   });
 
   $('#btn-reopen').addEventListener('click', async () => {
     if (!S.doneLead) return;
+    const id = S.doneLead.conversationId;
+    closeModals();
+    patchLocal(id, { feito: false, feitoAt: null, feitoReason: '', feitoReasonLabel: '', feitoNota: '', feitoPor: '' });
+    toast('Lead reaberto.');
     try {
-      await api('/api/done', { method: 'POST', body: JSON.stringify({ id: S.doneLead.conversationId, done: false }) });
-      closeModals();
-      toast('Lead reaberto.');
-      await loadData();
-    } catch { toast('Falha ao reabrir.'); }
+      await api('/api/done', { method: 'POST', body: JSON.stringify({ id, done: false }) });
+    } catch { toast('Falha ao reabrir — recarregando.'); }
+    await loadData();
   });
 
   async function noAnswer(id, reset) {
+    const row = (S.data?.rows || []).find((x) => x.conversationId === id);
+    closeModals();
+    // instant: attempted lead sinks to the end of the queue right away
+    if (row) {
+      const count = reset ? 0 : (row.naoAtendeuCount || 0) + 1;
+      patchLocal(id, {
+        naoAtendeuCount: count,
+        naoAtendeuAt: reset ? null : new Date().toISOString(),
+        noAnswerBucket: count >= 2,
+      });
+    }
+    toast(reset ? 'Lead de volta à fila.' : 'Registrado: não atendeu — lead foi para o fim da fila.');
     try {
       const res = await api('/api/noanswer', { method: 'POST', body: JSON.stringify({ id, reset }) });
-      const d = await res.json();
-      closeModals();
-      toast(reset ? 'Lead de volta à fila.' : `Registrado: não atendeu (${d.count}×).`);
-      await loadData();
-    } catch { toast('Falha ao registrar.'); }
+      if (!res.ok) throw new Error();
+    } catch { toast('Falha ao registrar — recarregando.'); }
+    await loadData();
   }
   $('#btn-noanswer').addEventListener('click', () => S.doneLead && noAnswer(S.doneLead.conversationId, false));
   $('#btn-requeue').addEventListener('click', () => S.doneLead && noAnswer(S.doneLead.conversationId, true));

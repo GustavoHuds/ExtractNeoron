@@ -21,7 +21,25 @@
 | Abertos | leads com situação `Aberto` (sem tag de venda/desqualificação) e não finalizados no painel |
 | Quentes | abertos com temperatura `quente` (ver algoritmo abaixo) |
 | Aguardando resposta | a última mensagem é do cliente e nenhum humano respondeu ainda |
-| Para ligar +24 h | aguardando há ≥ `CALL_QUEUE_HOURS` (padrão 24 h) **e** ≤ `CALL_QUEUE_MAX_DAYS` (padrão 14 dias) — é a fila de ligações. Quem espera há mais que isso é lead perdido: continua no pipeline (frio), mas não polui a fila |
+| Para ligar +24 h | aguardando há ≥ `CALL_QUEUE_HOURS` (padrão 24 h) **e** ≤ `CALL_QUEUE_MAX_DAYS` (padrão 14 dias). Quem espera há mais que isso é lead perdido: continua no pipeline (frio), mas não polui a fila |
+
+### Fila de ligações — regras de elegibilidade e ordem
+
+A tela "Fila de ligações" aplica regras comerciais de power-dialer:
+
+1. **Só WhatsApp** (ligação exige telefone; Instagram/Web ficam no pipeline).
+2. **Só etapa "negociando"** — vendido, descartado/cancelado e finalizado
+   nunca aparecem.
+3. Cliente **aguardando resposta humana** há ≥ 24 h (janela de até 14 dias),
+   ou com tentativa "não atendeu" registrada e ainda sem resposta.
+4. Lead removido com ✕ sai da fila **até o cliente escrever de novo** (nova
+   mensagem sem resposta = novo episódio = volta à fila).
+
+**Ordem:** espera mais longa primeiro (senioridade). Leads já tentados
+("não atendeu") afundam para o **fim da fila**, ordenados da tentativa mais
+antiga para a mais recente — o time roda a fila inteira antes de repetir
+alguém. Finalizar por qualquer desfecho tira o lead da fila e do pipeline
+**instantaneamente** (o `/api/data` reflete o estado ao vivo).
 | Não atendeu | leads com ≥ 2 tentativas de ligação registradas sem sucesso |
 | Vendidos no mês | ver "Vendas" abaixo, no mês corrente |
 

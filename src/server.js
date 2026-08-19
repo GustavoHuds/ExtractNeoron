@@ -9,14 +9,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config, OUT_JSON } from './config.js';
-import { extractAll, summarizeRows, toCsv, leadSnapshot } from './extract.js';
+import { extractAll, summarizeRows, refreshRows, toCsv, leadSnapshot } from './extract.js';
 import { fetchMessages } from './neoron.js';
 import { normalizeTranscript } from './lead.js';
 import { buildMonthly } from './monthly.js';
 import { buildWorkbook } from './xlsx.js';
 import {
   setDone, bumpNoAnswer, resetNoAnswer, loadJustifs, addJustif, removeJustif,
-  loadConvIndex, audit,
+  dismissFila, restoreFila, loadConvIndex, audit,
 } from './store.js';
 import { requireAuth } from './auth.js';
 import { saveCatalog, catalogStatus, parseCatalogCsv } from './catalog.js';
@@ -85,7 +85,9 @@ function loadData() {
   return { count: 0, rows: [], generatedAt: null };
 }
 
-app.get('/api/data', (_req, res) => res.json(loadData()));
+// Always served with LIVE state: finalizations, call attempts and queue
+// dismissals reflect instantly, and clock-dependent fields are recomputed.
+app.get('/api/data', (_req, res) => res.json(refreshRows(loadData())));
 
 app.post('/api/extract', async (req, res) => {
   if (extracting) return res.status(429).json({ error: 'Extração já em andamento.' });
@@ -93,7 +95,7 @@ app.post('/api/extract', async (req, res) => {
   try {
     const result = await extractAll(req.auth, { force: req.body?.force === true });
     audit(req.auth.email, 'extract', { convs: result.conversationsScanned, fetched: result.chatsFetched });
-    res.json(result);
+    res.json(refreshRows(result));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Falha ao processar. Tente novamente.' });
@@ -130,6 +132,17 @@ app.post('/api/noanswer', (req, res) => {
   audit(req.auth.email, reset ? 'volta_fila' : 'nao_atendeu', { id });
   const entry = map[id] || { count: 0, at: null };
   res.json({ ok: true, count: entry.count || 0, at: entry.at || null, note: entry.note || '' });
+});
+
+// Dismiss a lead from the call queue (✕) — or restore it. Dismissal is tied
+// to the current waiting episode: a new customer message re-enters the queue.
+app.post('/api/fila/dismiss', (req, res) => {
+  const { id, restore } = req.body || {};
+  if (!id || typeof id !== 'string') return res.status(400).json({ error: 'id obrigatório' });
+  const pendingTs = loadConvIndex()[id]?.pendingUserTs ?? null;
+  const map = restore ? restoreFila(id) : dismissFila(id, req.auth.email || '', pendingTs);
+  audit(req.auth.email, restore ? 'fila_restore' : 'fila_dismiss', { id });
+  res.json({ ok: true, dismissed: !!map[id] });
 });
 
 // Full chat transcript, fetched live with the CALLER'S token (never cached).
@@ -174,7 +187,7 @@ app.get('/api/metrics', (req, res) => {
 
 /** Export honoring the caller's current filter (ids subset, given order). */
 function exportResult(ids) {
-  const result = loadData();
+  const result = refreshRows(loadData());
   if (!Array.isArray(ids) || !ids.length) return result;
   const rank = new Map(ids.map((id, i) => [id, i]));
   const rows = result.rows

@@ -14,11 +14,11 @@
 import fs from 'node:fs';
 import { config, OUT_JSON, OUT_CSV, ensureDirs } from './config.js';
 import { listBots, nameMap, fetchConversations, fetchMessages, mapLimit } from './neoron.js';
-import { baseLead, archivedRow, toMs, transcriptOf, normalizeTranscript, lastText } from './lead.js';
+import { baseLead, archivedRow, toMs, transcriptOf, normalizeTranscript, reasonLabel } from './lead.js';
 import { attendantName, responseMetrics, leadScore, decayTemperatura, messageText } from './metrics.js';
 import { detectProducts } from './products.js';
 import { matchProduct } from './catalog.js';
-import { loadDone, loadNoAnswer, loadConvIndex, saveConvIndex, appendSnapshot } from './store.js';
+import { loadDone, loadNoAnswer, loadFilaSkip, loadConvIndex, saveConvIndex, appendSnapshot } from './store.js';
 import { createScorer } from './ai.js';
 import { neutralizeCell } from './sanitize.js';
 
@@ -213,6 +213,50 @@ export async function extractAll(auth, { force = false } = {}) {
   });
 
   return result;
+}
+
+/**
+ * Re-apply LIVE state to a stored extraction result, so /api/data reflects
+ * finalizations, call attempts and queue dismissals the instant they happen —
+ * no re-extraction needed. Also recomputes every clock-dependent field
+ * (waiting time, call-queue membership, temperature decay) for "now".
+ * Deps are injectable for tests; defaults read from data/.
+ */
+export function refreshRows(result, now = Date.now(), deps = {}) {
+  if (!result?.rows?.length) return result;
+  const doneMap = deps.doneMap ?? loadDone();
+  const naMap = deps.naMap ?? loadNoAnswer();
+  const skipMap = deps.skipMap ?? loadFilaSkip();
+  const index = deps.index ?? loadConvIndex();
+
+  const rows = result.rows.map((r) => {
+    const row = { ...r };
+    const id = row.conversationId;
+    const feito = doneMap[id];
+    row.feito = !!feito;
+    row.feitoAt = feito?.at || null;
+    row.feitoReason = feito?.reason || '';
+    row.feitoReasonLabel = feito ? reasonLabel(feito.reason) : '';
+    row.feitoNota = feito?.note || '';
+    row.feitoPor = feito?.by || '';
+    const na = naMap[id];
+    row.naoAtendeuCount = na?.count || 0;
+    row.naoAtendeuAt = na?.at || null;
+    row.naoAtendeuNota = na?.note || '';
+    row.noAnswerBucket = (na?.count || 0) >= 2;
+    const e = index[id];
+    if (e && !row.arquivado) applyIndex(row, e, now);
+    // Queue dismissal is per waiting-episode: a NEWER unanswered customer
+    // message re-enters the queue automatically.
+    const skip = skipMap[id];
+    row.filaDismissed = !!(skip && (skip.pendingUserTs == null || e?.pendingUserTs == null
+      || skip.pendingUserTs >= e.pendingUserTs));
+    return row;
+  })
+  // archived snapshots only exist while their conclusion exists
+  .filter((r) => !(r.arquivado && !r.feito));
+
+  return { ...result, ...summarizeRows(rows, now), rows };
 }
 
 /** Summary counts for an arbitrary set of rows. Finalized leads live in their

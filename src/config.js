@@ -15,6 +15,7 @@ export const CONV_INDEX_FILE = path.join(DATA_DIR, 'convindex.json');
 // Team-shared state.
 export const DONE_FILE = path.join(DATA_DIR, 'done.json');
 export const NOANSWER_FILE = path.join(DATA_DIR, 'noanswer.json');
+export const FILASKIP_FILE = path.join(DATA_DIR, 'filaskip.json');
 export const JUSTIF_FILE = path.join(DATA_DIR, 'justificativas.json');
 export const AI_SCORES_FILE = path.join(DATA_DIR, 'ai-scores.json');
 export const HISTORY_FILE = path.join(DATA_DIR, 'history.jsonl');

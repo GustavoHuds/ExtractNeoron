@@ -223,7 +223,7 @@ input, select, textarea { font-family: inherit; }
 .fila-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .fila-chip { font-size: 12px; font-weight: 600; color: rgba(243,233,210,.85); background: var(--navy-600); border-radius: 999px; padding: 7px 13px; }
 .fila-chip.hot { font-weight: 700; color: var(--navy-900); background: var(--cream-100); }
-.fila-cards, .fila-ig { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+.fila-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
 .fila-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
 .fila-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .fila-who { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
@@ -238,6 +238,12 @@ input, select, textarea { font-family: inherit; }
 .fila-btns { display: flex; gap: 8px; }
 .fila-btns .btn { height: 44px; }
 .fila-btns .grow { flex: 1; }
+.fila-btns-2nd { margin-top: 8px; }
+.fila-btns-2nd .btn { height: 36px; font-size: 12px; padding: 0 12px; flex: 1; }
+.fila-btns-2nd .btn-x { flex: 0 0 auto; color: var(--muted); min-width: 40px; }
+.fila-btns-2nd .btn-x:hover { color: var(--red); border-color: var(--red); }
+.fila-btns-2nd .btn-x-arm { color: #fff; background: var(--red); border-color: var(--red); font-weight: 700; }
+.fila-btns-2nd .btn-x-arm:hover { color: #fff; }
 .fila-section { grid-column: 1 / -1; font-size: 13px; font-weight: 700; color: var(--navy-900); padding: 14px 2px 2px; }
 .fila-empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 40px 0; font-size: 13.5px; }
 

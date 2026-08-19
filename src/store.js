@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import {
   DONE_FILE, NOANSWER_FILE, HISTORY_FILE, JUSTIF_FILE, CONV_INDEX_FILE,
-  AUDIT_FILE, ensureDirs, config,
+  AUDIT_FILE, FILASKIP_FILE, ensureDirs, config,
 } from './config.js';
 
 const UNSAFE_KEY = new Set(['__proto__', 'constructor', 'prototype']);
@@ -72,6 +72,30 @@ export function resetNoAnswer(id) {
   const map = loadNoAnswer();
   delete map[id];
   return writeJson(NOANSWER_FILE, map);
+}
+
+// ---------------------------------------------------- call-queue dismissals
+
+/**
+ * Leads dismissed from the call queue with the ✕ button. Each entry stores
+ * the `pendingUserTs` of the waiting episode it dismissed: if the customer
+ * writes again (a NEWER unanswered message), the lead re-enters the queue
+ * automatically — same recurrence rule task queues in CRMs use.
+ */
+export function loadFilaSkip() { return readJson(FILASKIP_FILE, {}); }
+
+export function dismissFila(id, by = '', pendingUserTs = null) {
+  if (UNSAFE_KEY.has(id)) return loadFilaSkip();
+  const map = loadFilaSkip();
+  map[id] = { at: new Date().toISOString(), by, pendingUserTs };
+  return writeJson(FILASKIP_FILE, map);
+}
+
+export function restoreFila(id) {
+  if (UNSAFE_KEY.has(id)) return loadFilaSkip();
+  const map = loadFilaSkip();
+  delete map[id];
+  return writeJson(FILASKIP_FILE, map);
 }
 
 // -------------------------------------------------------- justificativas

@@ -15,9 +15,12 @@ Respostas da API saem com `Cache-Control: no-store`. Rate limit: 600 req /
 ## Dados
 
 ### `GET /api/data`
-Última extração: `{ generatedAt, account, conversationsScanned, chatsFetched,
-count, leads, situacao{}, temperatura{}, canais{}, etapas{}, aguardando,
-aguardando24h, naoAtendeu, feitos, vendidosMes, rows[] }`.
+Última extração **com estado ao vivo**: finalizações, tentativas de ligação e
+remoções da fila refletem na hora (sem re-extração), e os campos que dependem
+do relógio (tempo de espera, fila +24 h, decay de temperatura) são recalculados
+a cada chamada. Shape: `{ generatedAt, account, conversationsScanned,
+chatsFetched, count, leads, situacao{}, temperatura{}, canais{}, etapas{},
+aguardando, aguardando24h, naoAtendeu, feitos, vendidosMes, rows[] }`.
 
 ### `POST /api/extract`
 Roda a extração incremental com o token do chamador. Body opcional
@@ -41,6 +44,11 @@ um snapshot do lead é salvo (aba Finalizados sobrevive ao lead sair do Neoron).
 ### `POST /api/noanswer`
 `{ id, reset?: boolean, note? }` — registra tentativa "não atendeu" (2+ move o
 lead para o balde Não atendeu) ou zera (volta à fila).
+
+### `POST /api/fila/dismiss`
+`{ id, restore?: boolean }` — remove o lead da fila de ligações (✕) ou o
+restaura. A remoção vale para o episódio de espera atual: se o cliente mandar
+uma mensagem nova sem resposta, o lead volta à fila automaticamente.
 
 ### `GET|POST /api/justificativas`
 Presets de justificativa do time. POST `{ text, remove?: boolean }`.
