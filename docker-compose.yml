@@ -1,0 +1,13 @@
+services:
+  extractneoron:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # Bind to localhost only — expose via reverse proxy (TLS) or VPN, never raw.
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

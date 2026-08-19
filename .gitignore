@@ -1,0 +1,19 @@
+# Secrets — never commit
+.env
+
+# Runtime data (leads, chats, caches, audit) — private, stays on the host
+data/
+
+# Dependencies
+node_modules/
+
+# Local design references (not part of the app)
+Design/
+Catálogo - ref/
+
+# OS noise
+Thumbs.db
+.DS_Store
+
+# One-off local scripts with credentials
+discover-neoron.mjs

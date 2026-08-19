@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Extract Neoron · Belmont</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<script src="/config.js"></script>
+</head>
+<body>
+
+<!-- ======================= LOGIN ======================= -->
+<div id="login" class="login hidden">
+  <form id="login-form" class="login-card" autocomplete="on">
+    <div class="brand brand-lg">
+      <span class="brand-name">BELMONT</span>
+      <span class="brand-bar"></span>
+    </div>
+    <h1>Extract Neoron</h1>
+    <p class="login-sub">Entre com a sua conta Neoron. As credenciais vão direto para o login oficial do Google/Firebase — nunca ficam salvas aqui.</p>
+    <label>E-mail
+      <input id="login-email" type="email" name="email" autocomplete="username" required>
+    </label>
+    <label>Senha
+      <input id="login-pass" type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <div id="login-error" class="login-error hidden"></div>
+    <button id="login-btn" type="submit" class="btn btn-orange btn-block">Entrar</button>
+  </form>
+</div>
+
+<!-- ======================= APP ======================= -->
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">BELMONT</span>
+      <span class="brand-bar"></span>
+    </div>
+    <span class="topbar-sep"></span>
+    <span class="topbar-app">Extract Neoron</span>
+    <nav class="topnav">
+      <button data-view="pipeline" class="nav-btn active">Leads</button>
+      <button data-view="fila" class="nav-btn">Fila de ligações</button>
+      <button data-view="metricas" class="nav-btn">Métricas</button>
+    </nav>
+    <div class="topbar-right">
+      <span id="updated-at" class="updated"></span>
+      <button id="btn-extract" class="btn btn-navy">↻ Atualizar dados</button>
+      <div class="menu-wrap">
+        <button id="btn-export" class="btn btn-navy">Exportar ▾</button>
+        <div id="export-menu" class="menu hidden">
+          <button id="btn-export-xlsx">Excel (.xlsx)</button>
+          <button id="btn-export-csv">CSV</button>
+          <button id="btn-catalog">Importar catálogo…</button>
+          <input id="catalog-file" type="file" accept=".csv,.json" class="hidden">
+        </div>
+      </div>
+      <div class="userchip">
+        <span id="user-initial" class="avatar"></span>
+        <span id="user-name"></span>
+        <button id="btn-logout" title="Sair">⏻</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="view-pipeline" class="view">
+    <div class="page-head">
+      <h1>Pipeline de leads</h1>
+      <span id="pipe-scope" class="scope-note"></span>
+    </div>
+    <div id="stats" class="stats"></div>
+    <div id="funnel" class="funnel"></div>
+    <div class="toolbar">
+      <div class="search"><input id="q" type="search" placeholder="Buscar nome, telefone, @instagram, produto…"></div>
+      <div id="temp-chips" class="chips">
+        <button data-temp="quente" class="chip chip-quente active">Quente</button>
+        <button data-temp="morno" class="chip chip-morno active">Morno</button>
+        <button data-temp="frio" class="chip chip-frio active">Frio</button>
+      </div>
+      <label class="check"><input id="only24" type="checkbox"> Só aguardando +24 h</label>
+      <select id="f-canal" class="select">
+        <option value="">Canal: Todos</option>
+        <option value="WHATSAPP">WhatsApp</option>
+        <option value="INSTAGRAM">Instagram</option>
+        <option value="WEB">Web</option>
+        <option value="DESCONHECIDO">Outros</option>
+      </select>
+      <select id="f-atendente" class="select"><option value="">Atendente: Todos</option></select>
+      <select id="f-sort" class="select">
+        <option value="urgencia">Ordenar: Urgência</option>
+        <option value="recente">Mais recente</option>
+        <option value="nome">Nome</option>
+        <option value="preco">Maior preço</option>
+      </select>
+    </div>
+    <div id="cards" class="cards"></div>
+    <div class="load-more-wrap"><button id="load-more" class="btn btn-ghost hidden"></button></div>
+  </main>
+
+  <main id="view-fila" class="view hidden">
+    <div class="fila-hero">
+      <h1>Fila de ligações</h1>
+      <p id="fila-sub"></p>
+      <div id="fila-chips" class="fila-chips"></div>
+    </div>
+    <div id="fila-cards" class="fila-cards"></div>
+    <div id="fila-ig" class="fila-ig"></div>
+  </main>
+
+  <main id="view-metricas" class="view hidden">
+    <div class="page-head">
+      <h1>Métricas da equipe</h1>
+      <select id="m-mes" class="select"></select>
+      <span id="m-compare" class="scope-note"></span>
+    </div>
+    <div id="m-body"></div>
+  </main>
+</div>
+
+<!-- ======================= MODALS ======================= -->
+<div id="modal-chat" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div><strong id="chat-title"></strong><span id="chat-sub" class="modal-sub"></span></div>
+      <button class="modal-close" data-close>✕</button>
+    </div>
+    <div id="chat-body" class="chat-body"></div>
+  </div>
+</div>
+
+<div id="modal-done" class="modal hidden">
+  <div class="modal-box modal-sm">
+    <div class="modal-head">
+      <div><strong>Finalizar lead</strong><span id="done-sub" class="modal-sub"></span></div>
+      <button class="modal-close" data-close>✕</button>
+    </div>
+    <div class="done-body">
+      <div class="done-label">Desfecho</div>
+      <div id="done-reasons" class="done-reasons">
+        <button data-reason="vendido" class="reason reason-green">Vendido</button>
+        <button data-reason="sem_retorno" class="reason">Sem retorno</button>
+        <button data-reason="sem_interesse" class="reason">Sem interesse</button>
+        <button data-reason="concorrente" class="reason">Comprou concorrente</button>
+        <button data-reason="outro" class="reason">Outro</button>
+      </div>
+      <div class="done-label">Justificativa</div>
+      <textarea id="done-note" rows="2" maxlength="500" placeholder="Opcional — visível para toda a equipe"></textarea>
+      <div id="done-presets" class="done-presets"></div>
+      <div class="done-actions">
+        <div id="done-call-actions">
+          <button id="btn-noanswer" class="btn btn-ghost">📞 Não atendeu</button>
+          <button id="btn-requeue" class="btn btn-ghost hidden">Voltar à fila</button>
+        </div>
+        <div>
+          <button id="btn-reopen" class="btn btn-ghost hidden">Reabrir lead</button>
+          <button id="btn-done-confirm" class="btn btn-orange" disabled>Concluir</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/auth.js"></script>
+<script src="/charts.js"></script>
+<script src="/metricas.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
